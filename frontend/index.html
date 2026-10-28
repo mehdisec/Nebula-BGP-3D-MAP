@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEBULA-BGP // 3D Global Routing & WHOIS Radar</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            cyber: {
+              dark: '#07090e',
+              card: '#0d121e',
+              cyan: '#00f0ff',
+              blue: '#38bdf8',
+              purple: '#a855f7',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Three.js and 3d-force-graph (Local Vendor with CDN fallback) -->
+  <script src="/static/vendor/three.min.js"></script>
+  <script src="/static/vendor/3d-force-graph.min.js"></script>
+  <script>
+    if (typeof THREE === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\\/script>');
+    }
+    if (typeof ForceGraph3D === 'undefined') {
+      document.write('<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"><\\/script>');
+    }
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body class="bg-[#07090e] text-slate-100 flex flex-col h-screen w-screen overflow-hidden cyber-grid select-none">
+
+  <!-- TOP HEADER / SEARCH BAR & STATS BAR -->
+  <header
+    class="h-16 border-b border-cyan-500/20 glass-panel z-30 flex items-center justify-between px-5 relative shrink-0">
+    <!-- Brand Title & Radar Pulse -->
+    <div class="flex items-center gap-3">
+      <div class="relative w-8 h-8 flex items-center justify-center">
+        <div class="absolute inset-0 rounded-full bg-cyan-500/20 pulse-radar"></div>
+        <div class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_12px_#00f0ff]"></div>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold tracking-widest uppercase font-mono text-cyan-400 glow-cyan">NEBULA // BGP
+            RADAR</span>
+          <span id="badge-view-mode" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">3D
+            RADIAL</span>
+        </div>
+        <div class="text-[11px] text-slate-400 font-mono">Autonomous System & Global Peer Topology</div>
+      </div>
+
+      <!-- 2D / 3D Mode Toggle Button in Top-Left Header -->
+      <button id="btn-toggle-2d"
+        class="ml-2 px-3 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,240,255,0.2)] transition active:scale-95 cursor-pointer"
+        title="Toggle between 2D Planar Map and 3D Radial Topology">
+        <span id="btn-2d-icon">🗺️</span>
+        <span id="btn-2d-text">2D Map</span>
+      </button>
+    </div>
+
+    <!-- Center Search & Hop Controls -->
+    <div class="flex items-center gap-3 max-w-2xl w-full mx-4">
+      <div class="relative flex-1">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input type="text" id="ip-input" value="8.8.8.8"
+          placeholder="Enter IPv4 or IPv6 address (e.g. 8.8.8.8, 1.1.1.1, 2606:4700::1)..."
+          class="w-full pl-9 pr-3 py-2 bg-slate-950/80 border border-slate-700/80 rounded-lg text-xs font-mono text-cyan-300 placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition" />
+      </div>
+
+      <!-- Hop Depth Slider -->
+      <div class="flex items-center gap-2 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
+        <span class="text-slate-400 text-[11px] font-mono whitespace-nowrap">Depth:</span>
+        <input type="range" id="depth-slider" min="1" max="10" value="10" class="w-20 accent-cyan-400 cursor-pointer" />
+        <span id="depth-val" class="font-mono text-cyan-400 text-[11px] w-12 text-right">10 Hops</span>
+      </div>
+
+      <!-- Trace Button -->
+      <button id="trace-btn"
+        class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-2 shadow-[0_0_15px_rgba(0,240,255,0.3)] transition transform active:scale-95 whitespace-nowrap">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        Trace & Visualize
+      </button>
+    </div>
+
+    <!-- Quick Sample Preset Chips -->
+    <div class="flex items-center gap-1.5">
+      <span class="text-[10px] text-slate-400 font-mono hidden xl:inline">Presets:</span>
+      <button
+        class="sample-chip text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition"
+        data-ip="8.8.8.8">Google</button>
+      <button
+        class="sample-chip text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition"
+        data-ip="1.1.1.1">Cloudflare</button>
+      <button
+        class="sample-chip text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition"
+        data-ip="9.9.9.9">Quad9</button>
+      <button
+        class="sample-chip text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition hidden lg:inline"
+        data-ip="208.67.222.222">OpenDNS</button>
+      <button
+        class="sample-chip text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition hidden lg:inline"
+        data-ip="2606:4700:4700::1111">IPv6</button>
+
+      <!-- Sidebar Toggle -->
+      <button id="btn-toggle-sidebar" title="Toggle Sidebar"
+        class="ml-2 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- SUBHEADER METRICS STRIP -->
+  <div
+    class="h-9 bg-slate-950/80 border-b border-slate-800/80 px-6 flex items-center justify-between text-xs font-mono shrink-0 z-20">
+    <div class="flex items-center gap-6 text-slate-400">
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">TARGET:</span>
+        <span id="stat-target-ip" class="text-cyan-300 font-bold">8.8.8.8</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">ORIGIN:</span>
+        <span id="stat-origin-as" class="text-cyan-300 font-bold">AS15169</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">TOPOLOGY NODES:</span>
+        <span id="stat-total-nodes" class="text-white font-bold">0</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">BGP PEER LINKS:</span>
+        <span id="stat-total-links" class="text-white font-bold">0</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-slate-500">RADIAL DEPTH:</span>
+        <span id="stat-max-depth" class="text-purple-300 font-bold">10 Hops</span>
+      </div>
+      <div class="hidden sm:flex items-center gap-1.5">
+        <span class="text-slate-500">TRANSIT BACKBONES:</span>
+        <span id="stat-tier1-count" class="text-emerald-300 font-bold">0 Tier-1</span>
+      </div>
+    </div>
+
+    <!-- Quick Viewport Controls -->
+    <div class="flex items-center gap-2">
+      <button id="btn-reset-camera"
+        class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-700/80 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+        Reset Camera
+      </button>
+      <button id="btn-auto-rotate"
+        class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] border border-slate-700/80 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Auto Rotate
+      </button>
+      <button id="btn-toggle-labels"
+        class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[11px] border border-cyan-500/40 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+        </svg>
+        Labels ON
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN WORKSPACE: 3D VIEWPORT & SIDE PANELS -->
+  <div class="flex-1 relative flex overflow-hidden">
+
+    <!-- LEFT SIDE PANEL (Announced Prefixes Inspector) -->
+    <aside id="left-panel"
+      class="w-80 lg:w-96 border-r border-cyan-500/20 glass-panel flex flex-col z-20 shrink-0 h-full relative collapsed">
+      <!-- Left Panel Header -->
+      <div class="p-3 border-b border-slate-800 bg-slate-950/70 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f0ff]"></div>
+          <span class="text-xs font-bold font-mono uppercase tracking-wider text-cyan-300">Announced Prefixes</span>
+          <span id="lp-badge-count" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 hidden">0</span>
+        </div>
+        <button id="btn-close-left-panel" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer" title="Close Panel">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- AS Identity Header -->
+      <div id="lp-as-header" class="p-3 bg-slate-900/50 border-b border-slate-800 shrink-0">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="lp-as-flag" class="text-lg">🌐</span>
+            <span id="lp-as-number" class="font-mono font-bold text-cyan-300 text-sm">Select an AS</span>
+            <span id="lp-as-country" class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono hidden">--</span>
+          </div>
+        </div>
+        <div id="lp-as-name" class="text-xs text-slate-400 mt-1 truncate">Click any node to see announced prefixes</div>
+      </div>
+
+      <!-- Filter / Search & Protocols Bar -->
+      <div class="p-2.5 border-b border-slate-800/80 bg-slate-950/50 space-y-2 shrink-0">
+        <div class="relative">
+          <input type="text" id="lp-prefix-search" placeholder="Filter prefix (e.g. 8.8.8, /24)..."
+            class="w-full pl-7 pr-2.5 py-1.5 bg-slate-900/80 border border-slate-700/80 rounded-md text-xs font-mono text-cyan-300 placeholder-slate-500 focus:outline-none focus:border-cyan-400" />
+          <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+        </div>
+
+        <!-- Protocol Filter Tabs -->
+        <div class="flex gap-1 text-[11px] font-mono">
+          <button id="lp-tab-all" class="lp-filter-btn flex-1 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-center font-medium cursor-pointer" data-filter="all">
+            All <span id="lp-count-all" class="text-[10px] opacity-80">(0)</span>
+          </button>
+          <button id="lp-tab-v4" class="lp-filter-btn flex-1 py-1 rounded bg-slate-900 text-slate-400 border border-slate-800 text-center hover:text-slate-200 cursor-pointer" data-filter="v4">
+            IPv4 <span id="lp-count-v4" class="text-[10px] opacity-80">(0)</span>
+          </button>
+          <button id="lp-tab-v6" class="lp-filter-btn flex-1 py-1 rounded bg-slate-900 text-slate-400 border border-slate-800 text-center hover:text-slate-200 cursor-pointer" data-filter="v6">
+            IPv6 <span id="lp-count-v6" class="text-[10px] opacity-80">(0)</span>
+          </button>
+        </div>
+
+        <!-- Export Actions Bar -->
+        <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+          <span class="text-slate-400 flex items-center gap-1 text-[10px]">
+            <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            Export:
+          </span>
+          <div class="flex items-center gap-1.5">
+            <button id="btn-export-txt" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 hover:text-cyan-300 text-slate-300 border border-slate-700/80 text-[10px] font-mono font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1" title="Export full AS specification & prefixes list as Text file">
+              <span>.TXT</span>
+            </button>
+            <button id="btn-export-csv" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 hover:text-cyan-300 text-slate-300 border border-slate-700/80 text-[10px] font-mono font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1" title="Export as CSV spreadsheet with AS metadata">
+              <span>.CSV</span>
+            </button>
+            <button id="btn-export-json" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 hover:text-cyan-300 text-slate-300 border border-slate-700/80 text-[10px] font-mono font-semibold transition active:scale-95 cursor-pointer flex items-center gap-1" title="Export as structured JSON with full AS specifications">
+              <span>.JSON</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prefixes Scrollable List Container -->
+      <div id="lp-prefixes-container" class="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
+        <div class="text-xs text-slate-500 text-center py-8 italic font-mono">
+          Select an AS node to list its announced prefixes
+        </div>
+      </div>
+
+      <!-- Footer Status -->
+      <div class="p-2 border-t border-slate-800/80 bg-slate-950/80 text-[10px] font-mono text-slate-500 flex justify-between shrink-0">
+        <span>Source: RIPE RIS / Stat</span>
+        <span id="lp-rendered-count">0 items</span>
+      </div>
+    </aside>
+
+    <!-- Floating Re-open Left Panel Button (shown when left panel is collapsed) -->
+    <button id="btn-open-left-panel"
+      class="absolute top-4 left-4 z-20 px-2.5 py-1.5 rounded-lg glass-panel text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/10 text-xs font-mono flex items-center gap-1.5 shadow-lg transition cursor-pointer"
+      title="Show Announced Prefixes">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16"/></svg>
+      <span>Prefixes</span>
+    </button>
+
+    <!-- 3D VIEWPORT (Canvas) -->
+    <main id="3d-viewport" class="flex-1 min-w-0 min-h-0 h-full relative cursor-grab active:cursor-grabbing overflow-hidden"></main>
+
+    <!-- FLOATING 3D COLOR LEGEND -->
+    <div
+      class="absolute bottom-5 left-5 glass-panel p-3.5 rounded-xl text-xs space-y-2 pointer-events-auto z-10 max-w-xs shadow-2xl">
+      <div class="font-semibold text-slate-200 flex items-center justify-between border-b border-slate-800 pb-1.5">
+        <span class="text-[11px] uppercase tracking-wider text-cyan-400 font-mono">Radial Hop Legend</span>
+        <span class="text-[10px] text-slate-500 font-mono">10 Concentric Shells</span>
+      </div>
+      <div class="space-y-1.5 text-[11px]">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"></span>
+          <span class="text-slate-300 font-medium">Hop 0: Core Target Origin AS</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#38bdf8]"></span>
+          <span class="text-slate-400">Hop 1: Direct Peers & Upstreams</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#a855f7]"></span>
+          <span class="text-slate-400">Hop 2: Tier-1 Global Backbones</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#fbbf24]"></span>
+          <span class="text-slate-400">Hop 3 - 5: Regional Transits</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#f43f5e]"></span>
+          <span class="text-slate-400">Hop 6 - 10: Edge & Vantage ASNs</span>
+        </div>
+      </div>
+      <div class="pt-1 border-t border-slate-800/80 text-[10px] text-slate-400 flex items-center gap-1">
+        <svg class="w-3 h-3 text-cyan-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>Hover node for <strong>2 seconds</strong> to open HUD</span>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDE PANEL (WHOIS & ASN METADATA) -->
+    <aside id="side-panel"
+      class="w-80 lg:w-96 border-l border-cyan-500/20 glass-panel flex flex-col z-20 shrink-0 h-full relative">
+      <!-- Panel Tab Bar -->
+      <div class="flex border-b border-slate-800 bg-slate-950/60 p-1 text-xs shrink-0">
+        <button
+          class="panel-tab-btn flex-1 py-2 px-1 text-center font-medium rounded-lg text-cyan-400 border-b-2 border-cyan-400 transition"
+          data-tab="target">
+          Target IP
+        </button>
+        <button
+          id="tab-btn-asn"
+          class="panel-tab-btn flex-1 py-2 px-1 text-center font-medium rounded-lg text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition flex items-center justify-center gap-1"
+          data-tab="asn">
+          <span>AS Inspector</span>
+          <span id="tab-asn-badge" class="text-[9px] px-1 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono hidden">AS...</span>
+        </button>
+        <button
+          class="panel-tab-btn flex-1 py-2 px-1 text-center font-medium rounded-lg text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition"
+          data-tab="whois">
+          WHOIS
+        </button>
+        <button
+          class="panel-tab-btn flex-1 py-2 px-1 text-center font-medium rounded-lg text-slate-400 border-b-2 border-transparent hover:text-slate-200 transition"
+          data-tab="lg">
+          BGP Paths
+        </button>
+      </div>
+
+      <!-- Scrollable Tab Content Container -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <!-- TAB 1: TARGET SUMMARY -->
+        <div id="tab-target" class="panel-tab-pane"></div>
+
+        <!-- TAB 2: ASN METADATA -->
+        <div id="tab-asn" class="panel-tab-pane hidden"></div>
+
+        <!-- TAB 3: WHOIS RECORDS -->
+        <div id="tab-whois" class="panel-tab-pane hidden"></div>
+
+        <!-- TAB 4: LOOKING GLASS PATHS -->
+        <div id="tab-lg" class="panel-tab-pane hidden"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 2-SECOND HOVER PROGRESS RING (Near Cursor) -->
+  <div id="hover-progress-ring">
+    <div class="relative w-12 h-12 flex items-center justify-center">
+      <svg class="w-12 h-12" viewBox="0 0 48 48">
+        <circle class="progress-circle-bg" cx="24" cy="24" r="20"></circle>
+        <circle id="progress-circle-val" class="progress-circle-val" cx="24" cy="24" r="20"></circle>
+      </svg>
+      <span id="hover-progress-text" class="absolute font-mono text-[10px] text-cyan-300 font-bold">2.0s</span>
+    </div>
+  </div>
+
+  <!-- FLOATING AS HOVER HUD MODAL (Triggered after 2 seconds continuous hover) -->
+  <div id="floating-as-hud"
+    class="glass-panel p-4 rounded-2xl border border-cyan-400/50 shadow-[0_0_35px_rgba(0,240,255,0.25)] text-xs space-y-3">
+    <!-- Header -->
+    <div class="flex items-start justify-between border-b border-slate-700/80 pb-2">
+      <div>
+        <div class="flex items-center gap-2">
+          <span id="hud-flag" class="text-xl">🌐</span>
+          <span id="hud-asn-label" class="text-base font-bold font-mono text-cyan-300">AS0</span>
+          <span id="hud-country"
+            class="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">US</span>
+        </div>
+        <div id="hud-name" class="font-semibold text-white text-xs mt-0.5">Autonomous System</div>
+      </div>
+      <button id="hud-close-btn" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Badges -->
+    <div class="flex items-center gap-2 flex-wrap text-[11px] font-mono">
+      <span id="hud-depth" class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">Hop
+        1</span>
+      <span id="hud-tier"
+        class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">Tier-1</span>
+    </div>
+
+    <!-- Data Grid -->
+    <div class="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5 font-mono text-[11px]">
+      <div class="flex justify-between">
+        <span class="text-slate-400">Total BGP Peers:</span>
+        <span id="hud-peers" class="text-slate-200 font-bold">0 Peers</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-slate-400">Prefix Details:</span>
+        <span id="hud-prefixes" class="text-cyan-300 font-bold">0 Announced</span>
+      </div>
+      <div id="hud-regdate" class="text-slate-400 text-[10px] hidden"></div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="flex items-center gap-2 pt-1">
+      <button id="hud-focus-btn"
+        class="flex-1 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-mono text-[11px] flex items-center justify-center gap-1.5 transition">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3" />
+          <circle cx="12" cy="12" r="8" />
+        </svg>
+        Center Camera
+      </button>
+      <a id="hud-rdap-link" href="#" target="_blank" rel="noopener"
+        class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-mono text-[11px] transition">
+        RDAP ↗
+      </a>
+    </div>
+  </div>
+
+  <!-- LOADING OVERLAY WITH RADAR SWEEP ANIMATION -->
+  <div id="loading-overlay"
+    class="absolute inset-0 bg-[#07090e]/90 backdrop-blur-md z-50 flex flex-col items-center justify-center space-y-5 hidden">
+    <div class="relative w-36 h-36 rounded-full border border-cyan-500/30 flex items-center justify-center p-2">
+      <!-- Radar grid circles -->
+      <div class="absolute inset-4 rounded-full border border-cyan-500/20"></div>
+      <div class="absolute inset-8 rounded-full border border-cyan-500/20"></div>
+      <div class="absolute inset-12 rounded-full border border-cyan-500/20"></div>
+      <div class="absolute w-full h-[1px] bg-cyan-500/20"></div>
+      <div class="absolute h-full w-[1px] bg-cyan-500/20"></div>
+
+      <!-- Radar sweeping beam -->
+      <div class="radar-sweep-beam absolute inset-0 rounded-full"
+        style="background: conic-gradient(from 0deg, transparent 70%, rgba(0, 240, 255, 0.4) 100%);"></div>
+
+      <!-- Center pulsing dot -->
+      <div class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_15px_#00f0ff] z-10 animate-ping"></div>
+    </div>
+    <div class="text-center space-y-1">
+      <div id="loading-status" class="text-sm font-mono text-cyan-300 font-bold glow-cyan">Traversing Global BGP
+        Topology...</div>
+      <div class="text-xs text-slate-400 font-mono">Analyzing Route Collectors & WHOIS databases</div>
+    </div>
+  </div>
+
+  <!-- ERROR TOAST NOTIFICATION -->
+  <div id="error-toast"
+    class="fixed bottom-6 right-6 z-50 glass-panel border border-rose-500/50 bg-slate-950/90 text-rose-300 p-4 rounded-xl shadow-2xl max-w-md flex items-start gap-3 hidden">
+    <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+    <div class="flex-1 text-xs space-y-1">
+      <div class="font-bold text-rose-200">Query Notification</div>
+      <div id="error-text" class="text-slate-300 font-mono"></div>
+    </div>
+    <button id="toast-close" class="text-slate-400 hover:text-white p-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- APPLICATION SCRIPTS -->
+  <script src="/static/js/hover_hud.js"></script>
+  <script src="/static/js/visualizer3d.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+
+</html>

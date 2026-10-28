@@ -13,6 +13,12 @@
 
 [English Documentation](README.md) • [راهنمای فارسی](README_FA.md)
 
+<br/>
+
+<p align="center">
+  <img src="assets/preview.png" alt="نمای کلی داشبورد Nebula BGP 3D MAP" width="100%">
+</p>
+
 </div>
 
 ---

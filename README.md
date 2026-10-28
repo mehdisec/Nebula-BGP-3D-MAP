@@ -13,6 +13,12 @@
 
 [English Documentation](README.md) • [راهنمای فارسی](README_FA.md)
 
+<br/>
+
+<p align="center">
+  <img src="assets/preview.png" alt="Nebula BGP 3D MAP Dashboard Preview" width="100%">
+</p>
+
 </div>
 
 ---

@@ -31,7 +31,10 @@ app.add_middleware(
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR / "frontend"
+# Detect frontend directory: dev repo location or packaged inside backend/frontend
+_DEV_FRONTEND = BASE_DIR / "frontend"
+_PKG_FRONTEND = Path(__file__).resolve().parent / "frontend"
+FRONTEND_DIR = _DEV_FRONTEND if (_DEV_FRONTEND.exists() and (_DEV_FRONTEND / "index.html").exists()) else _PKG_FRONTEND
 
 # Health Check
 @app.get("/api/health")

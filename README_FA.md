@@ -90,37 +90,40 @@
 
 ---
 
-## ⚡ نصب و راه‌اندازی سریع (اسکریپت تک‌خطی)
+### 🚀 نصب مستقیم و تک‌خطی (روی هر کامپیوتر جدید بدون نیاز به دانلود دستی)
+روی هر سیستمی که پایتون و گیت نصب باشد، بدون نیاز به دانلود فایل‌ها یا کلون کردن، تنها با یک خط دستور زیر کل پروژه، داشبورد و پیش‌نیازها به صورت مستقل نصب و در سیستم شما فعال می‌شود:
+```bash
+pip install git+https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+nebula-bgp
+```
 
-### ویندوز (PowerShell)
-پاورشل را در دایرکتوری پروژه باز کرده و دستور زیر را اجرا کنید:
+---
+
+### 💻 دانلود سورس کد و نصب محلی (Clone & Dev)
+اگر مایلید سورس کد پروژه را دریافت کرده و تغییر دهید:
+```bash
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
+pip install -e .
+nebula-bgp
+```
+
+### ویندوز (PowerShell Script)
 ```powershell
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
-*یا دستور تک‌خطی زیر:*
-```powershell
-python -m pip install -r requirements.txt; python run.py
-```
 
-### لینوکس و مک (Bash)
-ترمینال را در پوشه پروژه باز کرده و دستور زیر را اجرا کنید:
+### لینوکس و مک (Bash Script)
 ```bash
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
 chmod +x install.sh && ./install.sh
-```
-*یا دستور تک‌خطی زیر:*
-```bash
-python3 -m pip install -r requirements.txt && python3 run.py
 ```
 
 ### اجرا با یک کلیک در ویندوز (Batch)
 کافیست روی فایل **`run.bat`** دابل‌کلیک کنید تا پیش‌نیازها بررسی و سرور اجرا شود.
-
-### نصب به عنوان پکیج پایتون (pip)
-پروژه را به صورت مستقیم در پایتون نصب و اجرا کنید:
-```bash
-pip install -e .
-nebula-bgp
-```
 
 پس از راه‌اندازی سرور، مرورگر خود را به آدرس زیر هدایت کنید:
 👉 **`http://localhost:8000`**

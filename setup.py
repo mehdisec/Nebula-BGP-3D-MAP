@@ -10,6 +10,13 @@ setup(
     url="https://github.com/mehdisec/Nebula-BGP-3D-MAP",
     packages=find_packages(),
     include_package_data=True,
+    package_data={
+        "backend": [
+            "frontend/*",
+            "frontend/**/*",
+            "frontend/**/**/*",
+        ]
+    },
     install_requires=[
         "fastapi>=0.104.0",
         "uvicorn[standard]>=0.23.0",

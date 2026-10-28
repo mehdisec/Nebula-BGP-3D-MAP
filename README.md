@@ -92,39 +92,42 @@ Using live telemetry from **23+ global RIPE RIS Route Collectors** and route tab
 
 ---
 
-## ⚡ Quick Start (1-Line Installation)
+### 🚀 Direct Remote Installation (Any New Computer - 1 Line)
+On any computer with Python and Git installed, you can install and run **NEBULA-BGP** directly without manually cloning the repository:
+```bash
+pip install git+https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+nebula-bgp
+```
 
-### Windows (PowerShell)
-Open PowerShell in the project directory and run:
+---
+
+### 💻 Local Clone & Development Setup
+If you want to download or contribute to the source code:
+```bash
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
+pip install -e .
+nebula-bgp
+```
+
+### Windows (PowerShell Script)
 ```powershell
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
-*Or single-command line:*
-```powershell
-python -m pip install -r requirements.txt; python run.py
-```
 
-### Linux & macOS (Bash)
-Open terminal in the project directory and run:
+### Linux & macOS (Bash Script)
 ```bash
+git clone https://github.com/mehdisec/Nebula-BGP-3D-MAP.git
+cd Nebula-BGP-3D-MAP
 chmod +x install.sh && ./install.sh
-```
-*Or single-command line:*
-```bash
-python3 -m pip install -r requirements.txt && python3 run.py
 ```
 
 ### Windows Batch Launcher
 Double-click `run.bat` or run:
 ```cmd
 run.bat
-```
-
-### Python Package (pip)
-Install the package locally:
-```bash
-pip install -e .
-nebula-bgp
 ```
 
 After launching, open your browser at:

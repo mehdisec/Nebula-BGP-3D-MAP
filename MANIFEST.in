@@ -1,0 +1,11 @@
+include README.md
+include README_FA.md
+include LICENSE
+include requirements.txt
+include run.py
+include run.bat
+include install.ps1
+include install.sh
+recursive-include frontend *
+recursive-include assets *
+recursive-include backend *

@@ -1,4 +1,4 @@
-# 🛰️ NEBULA-BGP: 3D & 2D Global Routing Topology & WHOIS Radar
+# 🛰️ Nebula BGP 3D MAP: Interactive 3D & 2D Global Routing Topology & WHOIS Radar
 
 <div align="center">
 

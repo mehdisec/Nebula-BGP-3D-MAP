@@ -7,7 +7,7 @@ setup(
     description="Interactive 3D & 2D Global BGP Routing Topology & WHOIS Radar",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/mehdisec/nebula-bgp",
+    url="https://github.com/mehdisec/Nebula-BGP-3D-MAP",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[

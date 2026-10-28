@@ -1,4 +1,4 @@
-# 🛰️ رادار توپولوژی و مسیریابی جهانی BGP و هوش مصنوعی WHOIS (NEBULA-BGP)
+# 🛰️ رادار توپولوژی و مسیریابی جهانی Nebula BGP 3D MAP (NEBULA-BGP)
 
 <div align="center" dir="rtl">
 

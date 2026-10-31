@@ -164,7 +164,7 @@ Interactive Swagger documentation is available at **`http://localhost:8000/docs`
 ## 🏗️ Architecture & Technology Stack
 
 ```
-d:\1\BGP\
+
 ├── backend/
 │   ├── main.py            # FastAPI REST API, CLI entrypoint & static mounting
 │   ├── bgp_service.py     # BGP Looking Glass engine, RIPE RIS client & topology graph builder

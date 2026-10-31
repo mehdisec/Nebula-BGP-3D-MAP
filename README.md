@@ -27,10 +27,11 @@
 - [Overview](#-overview)
 - [Key Features](#-key-features)
   - [1. 3D Radial Topology Engine](#1--3d-radial-topology-engine)
-  - [2. 2D Planar Orthogonal Map Mode](#2--2d-planar-orthogonal-map-mode)
-  - [3. Announced Prefixes & Multi-Format Export](#3--announced-prefixes--multi-format-export-txt-csv-json)
-  - [4. Deep AS Inspector & Peering Relationships](#4--deep-as-inspector--peering-relationships)
-  - [5. 2-Second Hover Holographic HUD](#5--2-second-hover-holographic-hud)
+  - [2. Geographic Cyber World Map Mode](#2--geographic-cyber-world-map-mode)
+  - [3. 2D Planar Concentric Rings Mode](#3--2d-planar-concentric-rings-mode)
+  - [4. Announced Prefixes & Multi-Format Export](#4--announced-prefixes--multi-format-export-txt-csv-json)
+  - [5. Deep AS Inspector & Peering Relationships](#5--deep-as-inspector--peering-relationships)
+  - [6. 2-Second Hover Holographic HUD](#6--2-second-hover-holographic-hud)
 - [⚡ Quick Start (1-Line Installation)](#-quick-start-1-line-installation)
   - [Windows (PowerShell)](#windows-powershell)
   - [Linux & macOS (Bash)](#linux--macos-bash)
@@ -63,14 +64,26 @@ Using live telemetry from **23+ global RIPE RIS Route Collectors** and route tab
 - **Tier-1 Backbone Mesh:** Models real settlement-free cross-peering sessions between global backbones (Level 3, Telia/Arelion, NTT, Cogent, Tata, Hurricane Electric, Zayo, etc.).
 - **Animated Packet Flow:** Glowing particle pulses along BGP links in 3D mode.
 
-### 2. 🗺️ 2D Planar Orthogonal Map Mode
-- **1-Click 2D Toggle:** Instant switch button (`🗺️ 2D Map` / `🌐 3D View`) positioned in the top-left header.
+### 2. 🗺️ Geographic Cyber World Map Mode
+
+<p align="center">
+  <img src="assets/snapshot.png" alt="Nebula BGP Geographic Cyber World Map Mode" width="100%">
+</p>
+
+- **Real-World Global Coordinates:** Autonomous Systems (ASNs) are plotted on a high-resolution cyberpunk equirectangular world map plane at their genuine geographic latitude and longitude coordinates.
+- **Curved Submarine & Satellite Routing Arcs:** Inter-AS links arch upwards gracefully across oceans and continents in 3D (`linkCurvature = 0.24`), simulating trans-oceanic fiber cables and intercontinental BGP transits.
+- **Golden-Angle Anti-Collision Dispersal:** Multiple ASNs located within the same country (e.g. US, DE, NL, JP) are arranged using a deterministic golden-angle spiral, preventing overlapping nodes while preserving national clustering.
+- **Geographic Precision for Target Resource:** Uses IP geolocation telemetry to position the origin target node at its exact city location (e.g., Ashburn VA, Frankfurt, London, Tokyo).
+- **Interactive Continent Zoom:** Clicking any AS node flies the camera directly to that country or metro region to inspect regional routing.
+
+### 3. 🔘 2D Planar Concentric Rings Mode
+- **1-Click Mode Selector:** Seamless 1-click switcher in the top-left header between `🌌 3D Radial`, `🗺️ World Map`, and `🔘 2D Rings`.
 - **Strictly Non-Overlapping Concentric Rings:** Mathematically distributes nodes evenly on 2D orbital perimeters ($R = 140 \times \text{Hop}$), preventing any node from collapsing to the center.
 - **Clean Static Architecture:** Zero particle movement or camera shaking in 2D mode for clean network diagrams.
 - **High-Contrast Prominent Links:** 93% opacity with thick, distinct lines (`1.8px – 4.2px`).
 - **In-Place AS Highlighting:** Selecting an AS highlights its node with a neon halo and illuminates all of its connected links without displacing or moving the global map center.
 
-### 3. 📋 Announced Prefixes & Multi-Format Export (.TXT, .CSV, .JSON)
+### 4. 📋 Announced Prefixes & Multi-Format Export (.TXT, .CSV, .JSON)
 - **Left Sidebar Prefixes Inspector:** Automatically opens when clicking any AS node to list all announced IPv4 & IPv6 CIDRs fetched directly from RIPE RIS.
 - **Live Search & Protocol Tabs:** Instant text filter and tabs for `All`, `IPv4`, and `IPv6` with counter badges.
 - **1-Click Prefix Trace:** Click the "Trace" button on any prefix to instantly recalculate the network topology for that specific subnet.
@@ -79,14 +92,14 @@ Using live telemetry from **23+ global RIPE RIS Route Collectors** and route tab
   - 📊 **`.CSV`**: Spreadsheet-ready table with ASN, organization, country, IP version, prefix, and CIDR length.
   - 📦 **`.JSON`**: Complete structured JSON document with full AS specification, statistics, and categorized arrays.
 
-### 4. 🔬 Deep AS Inspector & Peering Relationships
+### 5. 🔬 Deep AS Inspector & Peering Relationships
 - **Right Sidebar Intelligence Panel:**
   - **Target Summary:** IP geolocation, ISP, organization, coordinates, and prefix.
   - **AS Inspector:** Detailed ASN profile, power ranking, registration date, abuse contact, and interactive peer chips.
   - **WHOIS & RDAP:** Cleanly parsed NetRange, OrgName, Address, and Abuse contacts.
   - **Looking Glass Paths:** Raw observed BGP AS-Paths collected across worldwide vantage points.
 
-### 5. ⏱️ 2-Second Hover Holographic HUD
+### 6. ⏱️ 2-Second Hover Holographic HUD
 - **Hover Countdown Progress Ring:** Circular SVG timer (`2.0s → 0s`) tracks continuous hover next to the cursor.
 - **Locked AS Hologram Card:** Prevents accidental tooltips and opens a comprehensive AS status card with one-click inspection.
 
@@ -182,6 +195,8 @@ d:\1\BGP\
 
 ## 👤 Author
 **mehdisec**
+- Mehdi Mirzaei 
+- Email : Mehdisec@gmail.com
 - GitHub: [@mehdisec](https://github.com/mehdisec)
 
 ---

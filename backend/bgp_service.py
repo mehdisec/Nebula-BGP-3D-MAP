@@ -8,10 +8,14 @@ import random
 import ipaddress
 import asyncio
 from typing import Dict, Any, List, Tuple, Set, Optional
+from collections import Counter
 import httpx
 
 from backend.cache import cache, as_cache
-from backend.as_database import get_known_as_info, country_code_to_flag, TIER1_ASNS, MAJOR_NETWORKS
+from backend.as_database import (
+    get_known_as_info, country_code_to_flag, TIER1_ASNS, MAJOR_NETWORKS,
+    get_as_geo_coordinates, get_country_coordinates, get_known_representative_ip
+)
 from backend.models import (
     NodeModel, LinkModel, GraphModel, WhoisField, WhoisRecord,
     WhoisData, IPMetadata, ASNMetadata, LookingGlassPath, BGPTraceResponse
@@ -380,120 +384,228 @@ class BGPService:
         fz = round(z * radius, 2)
         return fx, fy, fz
 
+    async def fetch_asn_representative_prefix_and_ip(
+        self, client: httpx.AsyncClient, asn: int, sem: asyncio.Semaphore
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Finds an announced prefix for an ASN and extracts a representative IP address.
+        Returns (prefix, representative_ip).
+        """
+        known_ip = get_known_representative_ip(asn)
+        if known_ip:
+            return None, known_ip
+
+        cache_key = f"asn_rep_prefix_{asn}"
+        cached = as_cache.get(cache_key)
+        if cached is not None:
+            return cached.get("prefix"), cached.get("ip")
+
+        async with sem:
+            try:
+                url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{asn}"
+                res = await self._fetch_json(client, url)
+                if isinstance(res, dict) and res.get("status") == "ok":
+                    prefixes_data = res.get("data", {}).get("prefixes", [])
+                    # Prefer IPv4 prefix for standard geolocation
+                    v4_prefixes = [p.get("prefix") for p in prefixes_data if p.get("prefix") and ":" not in p.get("prefix")]
+                    chosen_prefix = v4_prefixes[0] if v4_prefixes else (prefixes_data[0].get("prefix") if prefixes_data else None)
+
+                    if chosen_prefix:
+                        try:
+                            net = ipaddress.ip_network(chosen_prefix, strict=False)
+                            rep_ip = str(net.network_address + 1)
+                            result = (chosen_prefix, rep_ip)
+                            as_cache.set(cache_key, {"prefix": chosen_prefix, "ip": rep_ip}, ttl_seconds=86400)
+                            return result
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        return None, None
+
+    async def resolve_asns_geolocation(
+        self,
+        client: httpx.AsyncClient,
+        asns: List[int],
+        target_asn: int,
+        target_geo: Optional[Dict[str, Any]]
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        For each AS Number in the graph:
+        1. Extracts an announced prefix and representative IP address.
+        2. Batch-geocodes the IP address to pinpoint the exact geographic location (lat, lon, city).
+        3. Caches results for maximum performance.
+        """
+        asn_geo_map: Dict[int, Dict[str, Any]] = {}
+        missing_asns: List[int] = []
+
+        for asn in asns:
+            if asn == target_asn and target_geo and target_geo.get("lat") is not None and target_geo.get("lon") is not None:
+                asn_geo_map[asn] = {
+                    "lat": float(target_geo["lat"]),
+                    "lon": float(target_geo["lon"]),
+                    "city": target_geo.get("city"),
+                    "country": target_geo.get("country_code") or target_geo.get("country") or "US",
+                    "ip": target_geo.get("ip"),
+                    "prefix": target_geo.get("prefix")
+                }
+                continue
+
+            cached_geo = as_cache.get(f"asn_geo_loc_{asn}")
+            if cached_geo:
+                asn_geo_map[asn] = cached_geo
+            else:
+                missing_asns.append(asn)
+
+        if missing_asns:
+            sem = asyncio.Semaphore(10)
+            tasks = [self.fetch_asn_representative_prefix_and_ip(client, asn, sem) for asn in missing_asns]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            ip_to_asn: Dict[str, Tuple[int, Optional[str]]] = {}
+            batch_queries = []
+
+            for asn, res in zip(missing_asns, results):
+                if isinstance(res, tuple) and res[1]:
+                    pref, rep_ip = res
+                    ip_to_asn[rep_ip] = (asn, pref)
+                    batch_queries.append({"query": rep_ip, "fields": "status,message,country,countryCode,city,lat,lon,query"})
+
+            if batch_queries:
+                try:
+                    for i in range(0, len(batch_queries), 100):
+                        chunk = batch_queries[i:i+100]
+                        api_resp = await client.post("http://ip-api.com/batch", json=chunk, timeout=6.0)
+                        if api_resp.status_code == 200:
+                            data = api_resp.json()
+                            if isinstance(data, list):
+                                for item in data:
+                                    if item.get("status") == "success":
+                                        query_ip = item.get("query")
+                                        if query_ip in ip_to_asn:
+                                            a_asn, a_pref = ip_to_asn[query_ip]
+                                            geo_info = {
+                                                "lat": float(item["lat"]),
+                                                "lon": float(item["lon"]),
+                                                "city": item.get("city"),
+                                                "country": item.get("countryCode") or "US",
+                                                "ip": query_ip,
+                                                "prefix": a_pref
+                                            }
+                                            asn_geo_map[a_asn] = geo_info
+                                            as_cache.set(f"asn_geo_loc_{a_asn}", geo_info, ttl_seconds=86400)
+                except Exception:
+                    pass
+
+        return asn_geo_map
+
     async def build_bgp_graph(
         self,
         client: httpx.AsyncClient,
         target_asn: int,
         target_name: str,
         looking_glass_paths: List[LookingGlassPath],
-        max_depth: int = 10
+        max_depth: int = 10,
+        target_geo: Optional[Dict[str, Any]] = None
     ) -> GraphModel:
         """
         Construct a multi-hop BGP topology graph up to max_depth (1 to 10 hops).
         Target ASN sits at depth 0.
         Connects nodes via observed real paths and peer relationships.
         """
-        # Node mapping: asn -> {depth, type, peer_count, links_with}
+        # Node mapping: asn -> depth (target is depth 0)
         node_depths: Dict[int, int] = {target_asn: 0}
-        edges_set: Set[Tuple[int, int]] = set()
-        peer_counts: Dict[int, int] = {target_asn: 0}
+        final_edges: Set[Tuple[int, int, int]] = set()  # (downstream_asn, upstream_asn, hop_depth)
 
         # 1. Process observed BGP Looking Glass paths
         # Paths are [Vantage_AS, ..., AS_2, AS_1, Target_AS]
+        subpaths: List[Tuple[int, ...]] = []
         for lg in looking_glass_paths:
             path = lg.as_path
             if not path:
                 continue
-            # Ensure target_asn is the terminal or identify hop distances from target_asn
-            if target_asn in path:
-                target_idx = path.index(target_asn)
-                # Traverse backwards from target_idx to upstream vantage points
-                for hop_offset, idx in enumerate(range(target_idx - 1, -1, -1), start=1):
-                    if hop_offset > max_depth:
-                        break
-                    asn = path[idx]
-                    prev_asn = path[idx + 1]
-                    # Update minimum hop depth
-                    if asn not in node_depths or hop_offset < node_depths[asn]:
-                        node_depths[asn] = hop_offset
-                    # Add edge
-                    u, v = sorted([asn, prev_asn])
-                    edges_set.add((u, v))
-                    peer_counts[asn] = peer_counts.get(asn, 0) + 1
-                    peer_counts[prev_asn] = peer_counts.get(prev_asn, 0) + 1
 
-        # 2. Fetch direct BGP neighbours for target ASN
-        direct_neighbours = await self.fetch_asn_neighbours(client, target_asn)
-        # Sort neighbours by power/peers count descending
-        sorted_neighbours = sorted(
-            direct_neighbours,
-            key=lambda x: x.get("power", 0) + x.get("v4_peers", 0),
+            # Identify target_asn terminal index (or last occurrence)
+            if target_asn in path:
+                target_idx = len(path) - 1 - path[::-1].index(target_asn)
+            elif path:
+                target_idx = len(path) - 1
+            else:
+                continue
+
+            # Build subpath moving upstream from target_asn: [Target, Hop 1, Hop 2, Hop 3]
+            subpath = [target_asn]
+            for hop in range(1, max_depth + 1):
+                idx = target_idx - hop
+                if idx < 0:
+                    break
+                subpath.append(path[idx])
+
+            if len(subpath) > 1:
+                subpaths.append(tuple(subpath))
+
+        # Count frequency of each authentic subpath
+        subpath_counts = Counter(subpaths)
+
+        # Prioritize deeper multi-hop paths and higher observation frequency
+        sorted_subpaths = sorted(
+            subpath_counts.keys(),
+            key=lambda p: (len(p), subpath_counts[p]),
             reverse=True
         )
 
-        # Add top direct peers at depth 1 (up to 35 to maintain clean visual aesthetic)
-        top_direct = sorted_neighbours[:35]
-        for item in top_direct:
-            peer_asn = item.get("asn")
-            if peer_asn and peer_asn != target_asn:
-                if peer_asn not in node_depths:
-                    node_depths[peer_asn] = 1
-                u, v = sorted([target_asn, peer_asn])
-                edges_set.add((u, v))
-                peer_counts[peer_asn] = peer_counts.get(peer_asn, 0) + 1
-                peer_counts[target_asn] = peer_counts.get(target_asn, 0) + 1
-
-        # 3. Ensure we have nodes up to depth 10 if looking glass paths only reached depth 3-4
-        # We synthesize/expand deep hops by traversing known Tier-1 transit backbones and regional peers!
-        current_max = max(node_depths.values()) if node_depths else 0
-        if current_max < max_depth:
-            # We connect outer layers up to max_depth (e.g. up to 10)
-            # Find nodes at current depth d, and branch outward
-            for d in range(current_max, max_depth):
-                layer_nodes = [asn for asn, depth in node_depths.items() if depth == d]
-                if not layer_nodes:
-                    # Fallback to previous
-                    layer_nodes = [target_asn]
-                
-                # Pick 2-4 anchors to connect to next layer
-                anchors = layer_nodes[:4]
-                # Available candidate ASNs from Tier-1 or major backbones not yet placed
-                candidates = [asn for asn in list(TIER1_ASNS.keys()) + list(MAJOR_NETWORKS.keys()) if asn not in node_depths]
-                if not candidates:
-                    # Procedural global ASNs for high hop depths
-                    candidates = [20000 + d * 100 + i for i in range(5)]
-
-                layer_size = min(4 + (d % 3) * 2, len(candidates))
-                for i in range(layer_size):
-                    next_asn = candidates[i % len(candidates)]
-                    node_depths[next_asn] = d + 1
-                    anchor = anchors[i % len(anchors)]
-                    u, v = sorted([anchor, next_asn])
-                    edges_set.add((u, v))
-                    peer_counts[next_asn] = peer_counts.get(next_asn, 0) + 1
-                    peer_counts[anchor] = peer_counts.get(anchor, 0) + 1
-
-        # 4. Limit total nodes to reasonable capacity (~120-150 nodes max) for super smooth 60 FPS 3D rendering
-        # Group nodes by depth
-        nodes_by_depth: Dict[int, List[int]] = {}
-        for asn, d in node_depths.items():
-            if d <= max_depth:
-                nodes_by_depth.setdefault(d, []).append(asn)
-
         final_nodes_set: Set[int] = {target_asn}
-        for d in range(1, max_depth + 1):
-            asns_at_d = nodes_by_depth.get(d, [])
-            # Cap per layer: Layer 1 up to 30, Layer 2 up to 25, Layers 3-10 up to 15 each
-            cap = 30 if d == 1 else (25 if d == 2 else 15)
-            # Prioritize Tier-1 or higher peer count
-            asns_at_d.sort(key=lambda a: (1 if a in TIER1_ASNS else 0, peer_counts.get(a, 0)), reverse=True)
-            chosen = asns_at_d[:cap]
-            final_nodes_set.update(chosen)
 
-        # 5. Fetch metadata for all selected nodes concurrently
+        # Select top upstream paths to maintain clean, high-performance visualization (~60-80 paths)
+        for p in sorted_subpaths[:80]:
+            for d in range(1, len(p)):
+                downstream = p[d - 1]
+                upstream = p[d]
+                if upstream not in node_depths or d < node_depths[upstream]:
+                    node_depths[upstream] = d
+                final_nodes_set.add(downstream)
+                final_nodes_set.add(upstream)
+                final_edges.add((downstream, upstream, d))
+
+        # 2. Fallback to direct neighbours only if looking glass returned no paths
+        if len(final_nodes_set) <= 1:
+            direct_neighbours = await self.fetch_asn_neighbours(client, target_asn)
+            sorted_neighbours = sorted(
+                direct_neighbours,
+                key=lambda x: x.get("power", 0) + x.get("v4_peers", 0),
+                reverse=True
+            )
+            for item in sorted_neighbours[:30]:
+                peer_asn = item.get("asn")
+                if peer_asn and peer_asn != target_asn:
+                    node_depths[peer_asn] = 1
+                    final_nodes_set.add(peer_asn)
+                    final_edges.add((target_asn, peer_asn, 1))
+
+        # 3. Build peer counts and connected peers map based strictly on actual graph edges
+        peer_counts: Dict[int, int] = {target_asn: 0}
+        connected_peers_map: Dict[int, List[int]] = {}
+        for u, v, _ in final_edges:
+            peer_counts[u] = peer_counts.get(u, 0) + 1
+            peer_counts[v] = peer_counts.get(v, 0) + 1
+            connected_peers_map.setdefault(u, []).append(v)
+            connected_peers_map.setdefault(v, []).append(u)
+
+        # 4. Concurrently fetch metadata and pinpoint exact IP geolocations for all graph ASNs
         all_final_asns = list(final_nodes_set)
         meta_tasks = [self.get_as_metadata(client, asn) for asn in all_final_asns]
-        meta_results = await asyncio.gather(*meta_tasks, return_exceptions=True)
+        geo_task = self.resolve_asns_geolocation(client, all_final_asns, target_asn, target_geo)
+
+        gathered_results = await asyncio.gather(
+            asyncio.gather(*meta_tasks, return_exceptions=True),
+            geo_task,
+            return_exceptions=True
+        )
+
+        meta_results = gathered_results[0] if (isinstance(gathered_results, (list, tuple)) and isinstance(gathered_results[0], list)) else []
+        asn_geo_map = gathered_results[1] if (isinstance(gathered_results, (list, tuple)) and isinstance(gathered_results[1], dict)) else {}
+
         as_meta_map: Dict[int, Dict[str, Any]] = {}
         for asn, meta in zip(all_final_asns, meta_results):
             if isinstance(meta, dict):
@@ -501,8 +613,9 @@ class BGPService:
             else:
                 as_meta_map[asn] = {"name": f"AS{asn}", "country": "US", "flag": "🌐", "tier": "Transit", "is_tier1": False}
 
-        # 6. Build NodeModels with pre-calculated 3D Radial coordinates
+        # 6. Build NodeModels with pre-calculated 3D Radial & Geographic coordinates
         node_models: List[NodeModel] = []
+        country_asn_counters: Dict[str, int] = {}
         for d in range(0, max_depth + 1):
             layer_asns = [asn for asn in all_final_asns if node_depths.get(asn) == d]
             total_in_layer = len(layer_asns)
@@ -510,45 +623,111 @@ class BGPService:
                 m = as_meta_map.get(asn, {})
                 fx, fy, fz = self.compute_radial_coordinates(d, idx, total_in_layer, max_depth)
                 is_tgt = (asn == target_asn)
-                tier_label = "Core Target" if is_tgt else m.get("tier", "Transit / Peer")
+                c_code = m.get("country", "US")
+
+                # Compute geographic lat, lon, city based on exact representative IP
+                geo_info = asn_geo_map.get(asn)
+                node_city = None
+                rep_ip = None
+                rep_prefix = None
+
+                if geo_info and geo_info.get("lat") is not None and geo_info.get("lon") is not None:
+                    node_lat = float(geo_info["lat"])
+                    node_lon = float(geo_info["lon"])
+                    node_city = geo_info.get("city")
+                    rep_ip = geo_info.get("ip")
+                    rep_prefix = geo_info.get("prefix")
+                    if geo_info.get("country"):
+                        c_code = geo_info["country"]
+                elif is_tgt and target_geo and target_geo.get("lat") is not None and target_geo.get("lon") is not None:
+                    node_lat = float(target_geo["lat"])
+                    node_lon = float(target_geo["lon"])
+                    node_city = target_geo.get("city")
+                    rep_ip = target_geo.get("ip")
+                    rep_prefix = target_geo.get("prefix")
+                else:
+                    c_idx = country_asn_counters.get(c_code, 0)
+                    country_asn_counters[c_code] = c_idx + 1
+                    node_lat, node_lon = get_as_geo_coordinates(asn, c_code, c_idx)
+
+                # Classify AS into Tier 1 through 7
+                raw_is_tier1 = bool(m.get("is_tier1") or asn in TIER1_ASNS)
+                p_cnt = peer_counts.get(asn, 1)
+                if raw_is_tier1:
+                    t_level = 1
+                    t_name = "Tier-1 Global Backbone"
+                elif asn in MAJOR_NETWORKS or p_cnt >= 18:
+                    t_level = 2
+                    t_name = "Tier-2 Major Transit / CDN"
+                elif p_cnt >= 8:
+                    t_level = 3
+                    t_name = "Tier-3 Regional Transit"
+                elif d == 1:
+                    t_level = 2 if p_cnt >= 4 else 3
+                    t_name = f"Tier-{t_level} Direct Peer"
+                elif d == 2:
+                    t_level = 3 if p_cnt >= 3 else 4
+                    t_name = f"Tier-{t_level} Intermediate Transit"
+                elif d == 3:
+                    t_level = 4 if p_cnt >= 2 else 5
+                    t_name = f"Tier-{t_level} Local Access ISP"
+                elif d == 4:
+                    t_level = 5 if p_cnt >= 2 else 6
+                    t_name = f"Tier-{t_level} Edge Network"
+                elif d == 5:
+                    t_level = 6
+                    t_name = "Tier-6 Edge Network"
+                else:
+                    t_level = 7
+                    t_name = "Tier-7 Stub / Leaf AS"
+
+                tier_label = f"Core Target ({t_name})" if is_tgt else (m.get("tier") if m.get("tier") and m.get("tier") not in ["Transit / Peer", "Transit"] else t_name)
+
+                # Direct connected peers of this node in the graph
+                direct_peers = connected_peers_map.get(asn, [])
+                direct_peers_sorted = sorted(
+                    direct_peers,
+                    key=lambda p: (1 if p in TIER1_ASNS else 0, peer_counts.get(p, 0)),
+                    reverse=True
+                )
+
+                sample_prefs = [rep_prefix] if rep_prefix else ([f"198.51.100.0/24", f"203.0.113.0/24"] if is_tgt else [])
+
                 node_models.append(NodeModel(
                     id=str(asn),
                     asn=asn,
                     name=target_name if is_tgt else m.get("name", f"AS{asn}"),
-                    country=m.get("country", "US"),
-                    flag=m.get("flag", "🌐"),
+                    country=c_code,
+                    flag=country_code_to_flag(c_code) if c_code else m.get("flag", "🌐"),
                     depth=d,
                     tier=tier_label,
-                    is_tier1=m.get("is_tier1", False),
+                    tier_level=t_level,
+                    is_tier1=raw_is_tier1,
                     is_target=is_tgt,
                     peer_count=peer_counts.get(asn, 1) * (15 if is_tgt else 3),
                     prefixes_count=120 if is_tgt else 45,
-                    sample_prefixes=[f"198.51.100.0/24", f"203.0.113.0/24"] if is_tgt else [],
-                    type="target" if is_tgt else ("tier1" if m.get("is_tier1") else "peer"),
+                    sample_prefixes=sample_prefs,
+                    type="target" if is_tgt else ("tier1" if raw_is_tier1 else "peer"),
                     x=fx,
                     y=fy,
-                    z=fz
+                    z=fz,
+                    lat=node_lat,
+                    lon=node_lon,
+                    city=node_city,
+                    representative_ip=rep_ip,
+                    representative_prefix=rep_prefix,
+                    connected_peers=direct_peers_sorted
                 ))
 
-        # 6.5 Add peering interconnects between Tier-1 transit backbones present in the graph
-        tier1_in_graph = [asn for asn in final_nodes_set if asn in TIER1_ASNS]
-        for i in range(len(tier1_in_graph)):
-            for j in range(i + 1, min(i + 4, len(tier1_in_graph))):
-                u, v = sorted([tier1_in_graph[i], tier1_in_graph[j]])
-                edges_set.add((u, v))
-
-        # 7. Build LinkModels
+        # 6. Build LinkModels with authentic downstream -> upstream hierarchy
         link_models: List[LinkModel] = []
-        for u, v in edges_set:
-            if u in final_nodes_set and v in final_nodes_set:
-                d_u = node_depths.get(u, 0)
-                d_v = node_depths.get(v, 0)
-                min_d = min(d_u, d_v)
+        for src, dst, d in sorted(final_edges, key=lambda e: (e[2], e[0], e[1])):
+            if src in final_nodes_set and dst in final_nodes_set:
                 link_models.append(LinkModel(
-                    source=str(u),
-                    target=str(v),
-                    relationship="direct_peer" if min_d == 0 else "transit_link",
-                    depth=max(d_u, d_v)
+                    source=str(src),
+                    target=str(dst),
+                    relationship="direct_peer" if d == 1 else "transit_link",
+                    depth=d
                 ))
 
         return GraphModel(
@@ -559,7 +738,7 @@ class BGPService:
             total_links=len(link_models)
         )
 
-    async def trace_target(self, target: str, max_depth: int = 10) -> BGPTraceResponse:
+    async def trace_target(self, target: str, max_depth: int = 2) -> BGPTraceResponse:
         """Execute complete BGP trace, WHOIS lookup, and 3D graph synthesis for IP, CIDR, or ASN."""
         target_type, parsed_val, clean_target = self.parse_target(target)
         max_depth = max(1, min(10, max_depth))
@@ -635,12 +814,23 @@ class BGPService:
                 raise ValueError(f"Could not resolve Origin ASN for '{clean_target}'. The resource might not be announced.")
 
             # Step 3: Construct Multi-Hop 3D BGP Topology Graph
+            target_geo = None
+            if geo_data:
+                target_geo = {
+                    "lat": geo_data.get("lat"),
+                    "lon": geo_data.get("lon"),
+                    "city": geo_data.get("city"),
+                    "country": geo_data.get("countryCode"),
+                    "ip": clean_target if target_type == "ip" else geo_data.get("query"),
+                    "prefix": prefix
+                }
             graph = await self.build_bgp_graph(
                 client=client,
                 target_asn=origin_asn,
                 target_name=as_holder,
                 looking_glass_paths=lg_paths if isinstance(lg_paths, list) else [],
-                max_depth=max_depth
+                max_depth=max_depth,
+                target_geo=target_geo
             )
 
             # Step 4: Assemble IP / Target Metadata

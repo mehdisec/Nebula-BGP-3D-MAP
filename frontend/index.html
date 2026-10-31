@@ -38,6 +38,10 @@
     }
   </script>
 
+  <!-- Leaflet CSS & GeoArcsMap CSS -->
+  <link rel="stylesheet" href="/static/vendor/leaflet.css">
+  <link rel="stylesheet" href="/static/css/geo-arcs-map.css">
+
   <!-- Three.js and 3d-force-graph (Local Vendor with CDN fallback) -->
   <script src="/static/vendor/three.min.js"></script>
   <script src="/static/vendor/3d-force-graph.min.js"></script>
@@ -49,6 +53,16 @@
       document.write('<script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"><\\/script>');
     }
   </script>
+
+  <!-- Leaflet & GeoArcsMap Engine -->
+  <script src="/static/vendor/leaflet.js"></script>
+  <script>
+    if (typeof L === 'undefined') {
+      document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\\/script>');
+    }
+  </script>
+  <script src="/static/js/world-data.js"></script>
+  <script src="/static/js/geo-arcs-map.js"></script>
 
   <!-- Custom Styles -->
   <link rel="stylesheet" href="/static/css/style.css">
@@ -69,19 +83,28 @@
         <div class="flex items-center gap-2">
           <span class="text-sm font-bold tracking-widest uppercase font-mono text-cyan-400 glow-cyan">NEBULA // BGP
             RADAR</span>
-          <span id="badge-view-mode" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">3D
-            RADIAL</span>
+          <span id="badge-view-mode" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">🗺️ WORLD MAP</span>
         </div>
         <div class="text-[11px] text-slate-400 font-mono">Autonomous System & Global Peer Topology</div>
       </div>
 
-      <!-- 2D / 3D Mode Toggle Button in Top-Left Header -->
-      <button id="btn-toggle-2d"
-        class="ml-2 px-3 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,240,255,0.2)] transition active:scale-95 cursor-pointer"
-        title="Toggle between 2D Planar Map and 3D Radial Topology">
-        <span id="btn-2d-icon">🗺️</span>
-        <span id="btn-2d-text">2D Map</span>
-      </button>
+      <!-- View Mode Drop-Down Menu (World Map as Default) -->
+      <div class="relative flex items-center ml-2">
+        <label for="select-view-mode" class="sr-only">Topology View Mode</label>
+        <div class="relative flex items-center">
+          <select id="select-view-mode"
+            class="appearance-none bg-slate-900/95 text-emerald-300 border border-emerald-500/50 rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono font-bold hover:bg-slate-800 hover:border-emerald-400 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+            <option value="map" selected>🗺️ World Map</option>
+            <option value="3d">🌌 3D Radial</option>
+            <option value="2d">🔘 2D Rings</option>
+          </select>
+          <div class="pointer-events-none absolute right-2.5 flex items-center text-emerald-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Center Search & Hop Controls -->
@@ -93,16 +116,16 @@
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
-        <input type="text" id="ip-input" value="8.8.8.8"
-          placeholder="Enter IPv4 or IPv6 address (e.g. 8.8.8.8, 1.1.1.1, 2606:4700::1)..."
+        <input type="text" id="ip-input" value="AS44244"
+          placeholder="Enter IP or AS Number"
           class="w-full pl-9 pr-3 py-2 bg-slate-950/80 border border-slate-700/80 rounded-lg text-xs font-mono text-cyan-300 placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition" />
       </div>
 
-      <!-- Hop Depth Slider -->
+      <!-- Hop Depth Slider (Default: 2 Hops) -->
       <div class="flex items-center gap-2 bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
         <span class="text-slate-400 text-[11px] font-mono whitespace-nowrap">Depth:</span>
-        <input type="range" id="depth-slider" min="1" max="10" value="10" class="w-20 accent-cyan-400 cursor-pointer" />
-        <span id="depth-val" class="font-mono text-cyan-400 text-[11px] w-12 text-right">10 Hops</span>
+        <input type="range" id="depth-slider" min="1" max="10" value="2" class="w-20 accent-cyan-400 cursor-pointer" />
+        <span id="depth-val" class="font-mono text-cyan-400 text-[11px] w-12 text-right">2 Hops</span>
       </div>
 
       <!-- Trace Button -->
@@ -147,7 +170,7 @@
   <!-- SUBHEADER METRICS STRIP -->
   <div
     class="h-9 bg-slate-950/80 border-b border-slate-800/80 px-6 flex items-center justify-between text-xs font-mono shrink-0 z-20">
-    <div class="flex items-center gap-6 text-slate-400">
+    <div class="flex items-center gap-4 lg:gap-6 text-slate-400">
       <div class="flex items-center gap-1.5">
         <span class="text-slate-500">TARGET:</span>
         <span id="stat-target-ip" class="text-cyan-300 font-bold">8.8.8.8</span>
@@ -157,21 +180,38 @@
         <span id="stat-origin-as" class="text-cyan-300 font-bold">AS15169</span>
       </div>
       <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">TOPOLOGY NODES:</span>
+        <span class="text-slate-500">NODES:</span>
         <span id="stat-total-nodes" class="text-white font-bold">0</span>
+        <span id="stat-filtered-tier" class="text-[10px] text-cyan-400 font-bold hidden"></span>
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">BGP PEER LINKS:</span>
+      <div class="hidden xl:flex items-center gap-1.5">
+        <span class="text-slate-500">LINKS:</span>
         <span id="stat-total-links" class="text-white font-bold">0</span>
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="text-slate-500">RADIAL DEPTH:</span>
-        <span id="stat-max-depth" class="text-purple-300 font-bold">10 Hops</span>
+      <div class="hidden lg:flex items-center gap-1.5">
+        <span class="text-slate-500">DEPTH:</span>
+        <span id="stat-max-depth" class="text-purple-300 font-bold">3 Hops</span>
       </div>
-      <div class="hidden sm:flex items-center gap-1.5">
-        <span class="text-slate-500">TRANSIT BACKBONES:</span>
+      <div class="hidden 2xl:flex items-center gap-1.5">
+        <span class="text-slate-500">TRANSIT:</span>
         <span id="stat-tier1-count" class="text-emerald-300 font-bold">0 Tier-1</span>
       </div>
+    </div>
+
+    <!-- Tier 1 to 7 Hierarchy Filter Bar -->
+    <div class="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg px-2 py-0.5 text-xs font-mono shadow-[0_0_12px_rgba(0,240,255,0.1)]">
+      <span class="text-slate-400 text-[10px] font-semibold flex items-center gap-1 uppercase tracking-wider pr-1 border-r border-slate-800">
+        <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+        <span class="hidden sm:inline">Tier:</span>
+      </span>
+      <button class="tier-filter-btn px-2 py-0.5 rounded text-[11px] font-bold transition active:scale-95 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_8px_rgba(0,240,255,0.25)]" data-tier="all">ALL</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="1" title="Tier-1: Global Backbones (DFZ)">T1</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="2" title="Tier-2: Major Transit / Hyperscale / CDN">T2</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="3" title="Tier-3: Regional Transit / Large Telco">T3</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="4" title="Tier-4: Metro / Intermediate Carrier">T4</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="5" title="Tier-5: Local Access / Enterprise">T5</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="6" title="Tier-6: Edge Network">T6</button>
+      <button class="tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700" data-tier="7" title="Tier-7: Stub / Vantage Point">T7</button>
     </div>
 
     <!-- Quick Viewport Controls -->
@@ -300,20 +340,26 @@
       <span>Prefixes</span>
     </button>
 
-    <!-- 3D VIEWPORT (Canvas) -->
-    <main id="3d-viewport" class="flex-1 min-w-0 min-h-0 h-full relative cursor-grab active:cursor-grabbing overflow-hidden"></main>
+    <!-- MAIN WORKSPACE VIEWPORTS -->
+    <div id="viewport-container" class="flex-1 min-w-0 min-h-0 h-full relative overflow-hidden">
+      <!-- GeoArcsMap Leaflet World Map Viewport (DEFAULT) -->
+      <div id="world-map-viewport" class="viewport-panel is-active"></div>
 
-    <!-- FLOATING 3D COLOR LEGEND -->
+      <!-- 3D / 2D Force Graph Viewport -->
+      <main id="3d-viewport" class="viewport-panel is-hidden cursor-grab active:cursor-grabbing overflow-hidden"></main>
+    </div>
+
+    <!-- FLOATING COLOR LEGEND -->
     <div
       class="absolute bottom-5 left-5 glass-panel p-3.5 rounded-xl text-xs space-y-2 pointer-events-auto z-10 max-w-xs shadow-2xl">
       <div class="font-semibold text-slate-200 flex items-center justify-between border-b border-slate-800 pb-1.5">
-        <span class="text-[11px] uppercase tracking-wider text-cyan-400 font-mono">Radial Hop Legend</span>
-        <span class="text-[10px] text-slate-500 font-mono">10 Concentric Shells</span>
+        <span id="legend-title" class="text-[11px] uppercase tracking-wider text-emerald-400 font-mono">Geographic BGP Map</span>
+        <span id="legend-subtitle" class="text-[10px] text-slate-500 font-mono">Global AS Coordinates</span>
       </div>
-      <div class="space-y-1.5 text-[11px]">
+      <div id="legend-items" class="space-y-1.5 text-[11px]">
         <div class="flex items-center gap-2">
-          <span class="w-3 h-3 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"></span>
-          <span class="text-slate-300 font-medium">Hop 0: Core Target Origin AS</span>
+          <span class="w-3 h-3 rounded-full bg-[#ff6600] shadow-[0_0_8px_#ff6600]"></span>
+          <span class="text-slate-300 font-medium">Core Target Origin AS (Host Location)</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="w-3 h-3 rounded-full bg-[#38bdf8]"></span>

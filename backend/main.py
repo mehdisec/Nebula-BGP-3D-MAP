@@ -51,7 +51,7 @@ async def health_check():
 async def trace_endpoint(
     ip: Optional[str] = Query(None, description="Target IPv4/IPv6, CIDR, or ASN (e.g., 8.8.8.8, 1.1.1.0/24, AS15169)"),
     target: Optional[str] = Query(None, description="Target resource (IP, CIDR range, or ASN)"),
-    depth: int = Query(10, ge=1, le=10, description="Maximum path length / hop depth (1 to 10)")
+    depth: int = Query(2, ge=1, le=10, description="Maximum path length / hop depth (1 to 10)")
 ):
     query_resource = target or ip
     if not query_resource:

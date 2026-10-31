@@ -9,6 +9,7 @@ class NodeModel(BaseModel):
     flag: str = "🌐"
     depth: int = 0
     tier: str = "Transit / Peer"
+    tier_level: int = 2
     is_tier1: bool = False
     is_target: bool = False
     peer_count: int = 0
@@ -19,6 +20,15 @@ class NodeModel(BaseModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
+    # Precomputed Geographic coordinates for World Map Mode
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    city: Optional[str] = None
+    # Representative IP & prefix derived for geolocation
+    representative_ip: Optional[str] = None
+    representative_prefix: Optional[str] = None
+    # Direct peer ASNs connected in the topology graph
+    connected_peers: List[int] = Field(default_factory=list)
 
 class LinkModel(BaseModel):
     source: str

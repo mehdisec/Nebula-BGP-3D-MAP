@@ -7,6 +7,44 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize 3D Visualizer
   window.bgpVisualizer = new BGPVisualizer3D("3d-viewport");
 
+  // Initialize GeoArcsMap on world-map-viewport (Reusable Vector & Curved Arcs World Map Engine)
+  const worldMapEl = document.getElementById("world-map-viewport");
+  if (worldMapEl && typeof GeoArcsMap !== "undefined") {
+    try {
+      window.geoArcsMap = new GeoArcsMap(worldMapEl, {
+        center: [28, 10],
+        zoom: 2.2,
+        minZoom: 1.5,
+        maxZoom: 12,
+        basemapMode: "vector",
+        arcHeightFactor: 0.22,
+        onNodeClick: (node) => {
+          if (!node) {
+            if (window.selectAS) {
+              window.selectAS(null);
+            }
+            if (window.hoverHUD) {
+              window.hoverHUD.hideFloatingHUD();
+            }
+            return;
+          }
+          const asData = node.data || node;
+          if (asData) {
+            if (window.selectAS) {
+              window.selectAS(asData);
+            }
+            if (window.hoverHUD) {
+              window.hoverHUD.activeHudNode = asData;
+              window.hoverHUD.showFloatingHUD(asData, window.innerWidth / 2 - 180, 100);
+            }
+          }
+        }
+      });
+    } catch (err) {
+      console.warn("Failed to initialize GeoArcsMap:", err);
+    }
+  }
+
   // Elements
   const ipInput = document.getElementById("ip-input");
   const depthSlider = document.getElementById("depth-slider");
@@ -40,10 +78,10 @@ document.addEventListener("DOMContentLoaded", () => {
   traceBtn.addEventListener("click", () => {
     const ip = ipInput.value.trim();
     if (!ip) {
-      showError("Please enter a valid IPv4 or IPv6 address.");
+      showError("Please enter a valid IP address or AS Number.");
       return;
     }
-    const depth = parseInt(depthSlider.value, 10) || 10;
+    const depth = parseInt(depthSlider.value, 10) || 2;
     executeTrace(ip, depth);
   });
 
@@ -85,9 +123,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Controls Toolbar
+  let currentViewMode = "map"; // Default is 'map'!
+
   const resetCameraBtn = document.getElementById("btn-reset-camera");
   if (resetCameraBtn) {
-    resetCameraBtn.addEventListener("click", () => window.bgpVisualizer.resetCamera());
+    resetCameraBtn.addEventListener("click", () => {
+      if (currentViewMode === "map" && window.geoArcsMap && window.geoArcsMap.map) {
+        window.geoArcsMap.map.setView([28, 10], 2.2);
+      } else if (window.bgpVisualizer) {
+        window.bgpVisualizer.resetCamera();
+      }
+    });
   }
 
   const autoRotateBtn = document.getElementById("btn-auto-rotate");
@@ -116,36 +162,218 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 2D Map Mode Toggle (Top-Left Header Button)
-  const toggle2DBtn = document.getElementById("btn-toggle-2d");
-  const btn2DIcon = document.getElementById("btn-2d-icon");
-  const btn2DText = document.getElementById("btn-2d-text");
+  // View Mode Dropdown (World Map as Default, 3D Radial, 2D Rings)
+  const selectViewMode = document.getElementById("select-view-mode");
+  const worldMapViewport = document.getElementById("world-map-viewport");
+  const force3dViewport = document.getElementById("3d-viewport");
   const badgeViewMode = document.getElementById("badge-view-mode");
 
-  if (toggle2DBtn) {
-    toggle2DBtn.addEventListener("click", () => {
-      if (!window.bgpVisualizer) return;
-      const is2D = window.bgpVisualizer.toggle2DMode();
-      if (is2D) {
-        toggle2DBtn.classList.add("bg-purple-900/40", "border-purple-400", "text-purple-300");
-        toggle2DBtn.classList.remove("bg-slate-900/90", "border-cyan-500/40", "text-cyan-300");
-        if (btn2DIcon) btn2DIcon.innerText = "🌐";
-        if (btn2DText) btn2DText.innerText = "3D View";
+  function switchViewMode(mode) {
+    currentViewMode = mode;
+    if (selectViewMode && selectViewMode.value !== mode) {
+      selectViewMode.value = mode;
+    }
+
+    if (mode === "map") {
+      if (worldMapViewport) {
+        worldMapViewport.classList.remove("is-hidden", "hidden");
+        worldMapViewport.classList.add("is-active");
+      }
+      if (force3dViewport) {
+        force3dViewport.classList.remove("is-active");
+        force3dViewport.classList.add("is-hidden");
+        force3dViewport.classList.remove("hidden");
+      }
+
+      if (badgeViewMode) {
+        badgeViewMode.innerText = "🗺️ WORLD MAP";
+        badgeViewMode.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800";
+      }
+      if (selectViewMode) {
+        selectViewMode.className = "appearance-none bg-slate-900/95 text-emerald-300 border border-emerald-500/50 rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono font-bold hover:bg-slate-800 hover:border-emerald-400 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)]";
+      }
+
+      updateLegendUI("map");
+
+      if (window.geoArcsMap) {
+        setTimeout(() => {
+          window.geoArcsMap.resize();
+        }, 50);
+      }
+    } else {
+      if (worldMapViewport) {
+        worldMapViewport.classList.remove("is-active");
+        worldMapViewport.classList.add("is-hidden");
+      }
+      if (force3dViewport) {
+        force3dViewport.classList.remove("is-hidden", "hidden");
+        force3dViewport.classList.add("is-active");
+      }
+
+      if (window.bgpVisualizer) {
+        window.bgpVisualizer.resize();
+        window.bgpVisualizer.setViewMode(mode);
+        requestAnimationFrame(() => {
+          if (window.bgpVisualizer) {
+            window.bgpVisualizer.resize();
+          }
+        });
+        setTimeout(() => {
+          if (window.bgpVisualizer) {
+            window.bgpVisualizer.resize();
+          }
+        }, 60);
+      }
+
+      if (mode === "2d") {
         if (badgeViewMode) {
-          badgeViewMode.innerText = "2D PLANAR";
+          badgeViewMode.innerText = "2D RINGS";
           badgeViewMode.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950 text-purple-400 border border-purple-800";
         }
+        if (selectViewMode) {
+          selectViewMode.className = "appearance-none bg-slate-900/95 text-purple-300 border border-purple-500/50 rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono font-bold hover:bg-slate-800 hover:border-purple-400 focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 transition cursor-pointer shadow-[0_0_12px_rgba(168,85,247,0.2)]";
+        }
+        updateLegendUI("2d");
       } else {
-        toggle2DBtn.classList.remove("bg-purple-900/40", "border-purple-400", "text-purple-300");
-        toggle2DBtn.classList.add("bg-slate-900/90", "border-cyan-500/40", "text-cyan-300");
-        if (btn2DIcon) btn2DIcon.innerText = "🗺️";
-        if (btn2DText) btn2DText.innerText = "2D Map";
         if (badgeViewMode) {
           badgeViewMode.innerText = "3D RADIAL";
           badgeViewMode.className = "text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800";
         }
+        if (selectViewMode) {
+          selectViewMode.className = "appearance-none bg-slate-900/95 text-cyan-300 border border-cyan-500/50 rounded-lg pl-3 pr-8 py-1.5 text-xs font-mono font-bold hover:bg-slate-800 hover:border-cyan-400 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition cursor-pointer shadow-[0_0_12px_rgba(0,240,255,0.25)]";
+        }
+        updateLegendUI("3d");
+      }
+    }
+  }
+
+  if (selectViewMode) {
+    selectViewMode.addEventListener("change", (e) => {
+      switchViewMode(e.target.value);
+    });
+  }
+
+  // Set Default View Mode to World Map
+  switchViewMode("map");
+
+  // Tier 1 to 7 Hierarchy Filter Controller
+  const tierFilterBtns = document.querySelectorAll(".tier-filter-btn");
+  let activeTierFilter = "all";
+
+  function applyTierFilter(tier) {
+    activeTierFilter = String(tier);
+
+    // Update button visual styles
+    tierFilterBtns.forEach(btn => {
+      const btnTier = btn.getAttribute("data-tier");
+      if (btnTier === activeTierFilter) {
+        btn.className = "tier-filter-btn px-2 py-0.5 rounded text-[11px] font-bold transition active:scale-95 bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_8px_rgba(0,240,255,0.25)]";
+      } else {
+        btn.className = "tier-filter-btn px-1.5 py-0.5 rounded text-[11px] font-medium transition active:scale-95 text-slate-400 hover:text-white border border-transparent hover:border-slate-700";
       }
     });
+
+    // Apply to 3D / 2D Visualizer
+    if (window.bgpVisualizer) {
+      window.bgpVisualizer.setTierFilter(activeTierFilter);
+    }
+
+    // Apply to GeoArcsMap Leaflet World Map
+    if (window.geoArcsMap) {
+      window.geoArcsMap.setTierFilter(activeTierFilter);
+    }
+
+    // Update visible node count in stats
+    updateVisibleNodeStats();
+  }
+
+  function updateVisibleNodeStats() {
+    const data = window.currentTraceData;
+    if (!data || !data.graph) return;
+    const total = data.graph.nodes.length;
+    const statNodes = document.getElementById("stat-total-nodes");
+    const statFilteredTier = document.getElementById("stat-filtered-tier");
+
+    if (activeTierFilter === "all") {
+      if (statNodes) statNodes.innerText = total;
+      if (statFilteredTier) statFilteredTier.classList.add("hidden");
+    } else {
+      const targetTier = parseInt(activeTierFilter, 10);
+      const visible = data.graph.nodes.filter(n => n.is_target || (n.tier_level === targetTier)).length;
+      if (statNodes) statNodes.innerText = visible;
+      if (statFilteredTier) {
+        statFilteredTier.innerText = `/${total} (T${activeTierFilter})`;
+        statFilteredTier.classList.remove("hidden");
+      }
+    }
+  }
+
+  tierFilterBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tier = btn.getAttribute("data-tier") || "all";
+      applyTierFilter(tier);
+    });
+  });
+
+  function updateLegendUI(mode) {
+    const legendTitle = document.getElementById("legend-title");
+    const legendSubtitle = document.getElementById("legend-subtitle");
+    const legendItems = document.getElementById("legend-items");
+    if (!legendTitle || !legendSubtitle || !legendItems) return;
+
+    if (mode === "map") {
+      legendTitle.innerText = "GEOGRAPHIC BGP MAP";
+      legendTitle.className = "text-[11px] uppercase tracking-wider text-emerald-400 font-mono";
+      legendSubtitle.innerText = "Global AS Coordinates";
+      legendItems.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#ff6600] shadow-[0_0_8px_#ff6600]"></span>
+          <span class="text-slate-300 font-medium">Core Target Origin AS (Host Location)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#38bdf8]"></span>
+          <span class="text-slate-400">Hop 1: Direct Peers & Upstreams</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#a855f7]"></span>
+          <span class="text-slate-400">Hop 2: Tier-1 Global Backbones</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#fbbf24]"></span>
+          <span class="text-slate-400">Hop 3 - 5: Regional Transits</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#f43f5e]"></span>
+          <span class="text-slate-400">Hop 6 - 10: Edge & Vantage ASNs</span>
+        </div>
+      `;
+    } else {
+      legendTitle.innerText = "RADIAL HOP LEGEND";
+      legendTitle.className = "text-[11px] uppercase tracking-wider text-cyan-400 font-mono";
+      legendSubtitle.innerText = mode === "2d" ? "Concentric Planar Rings" : "10 Concentric Shells";
+      legendItems.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#ff6600] shadow-[0_0_8px_#ff6600]"></span>
+          <span class="text-slate-300 font-medium">Hop 0: Core Target Origin AS</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#38bdf8]"></span>
+          <span class="text-slate-400">Hop 1: Direct Peers & Upstreams</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#a855f7]"></span>
+          <span class="text-slate-400">Hop 2: Tier-1 Global Backbones</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#fbbf24]"></span>
+          <span class="text-slate-400">Hop 3 - 5: Regional Transits</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-[#f43f5e]"></span>
+          <span class="text-slate-400">Hop 6 - 10: Edge & Vantage ASNs</span>
+        </div>
+      `;
+    }
   }
 
   // Left Sidebar (Announced Prefixes) Controls
@@ -253,6 +481,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const data = await response.json();
+      window.currentTraceData = data;
 
       // Update Header Stats
       updateHeaderStats(data);
@@ -260,11 +489,21 @@ document.addEventListener("DOMContentLoaded", () => {
       // Render 3D Radial Graph
       window.bgpVisualizer.renderData(data);
 
+      // Render GeoArcsMap (Real-world curved Bezier packet arcs)
+      renderGeoArcsMap(data);
+
+      // Apply currently active tier filter across all views
+      applyTierFilter(activeTierFilter);
+
       // Render Side Panel Tabs
       renderTargetSummaryTab(data);
       renderASNMetadataTab(data);
       renderWHOISTab(data);
       renderLookingGlassTab(data);
+
+      // Automatically open Announced Prefixes Left Sidebar for the target Origin AS
+      const originNode = data.graph.nodes.find(n => n.is_target) || data.graph.nodes[0];
+      loadASPrefixes(data.origin_asn, originNode);
 
     } catch (err) {
       console.error("Trace failed:", err);
@@ -273,6 +512,8 @@ document.addEventListener("DOMContentLoaded", () => {
       showLoading(false);
     }
   }
+
+  window.executeTrace = executeTrace;
 
   function updateHeaderStats(data) {
     document.getElementById("stat-target-ip").innerText = data.target_ip;
@@ -352,16 +593,178 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-focus-target").addEventListener("click", () => {
       const targetNode = data.graph.nodes.find(n => n.is_target);
-      if (targetNode) window.bgpVisualizer.focusOnNode(targetNode);
+      if (targetNode) {
+        if (currentViewMode === "map" && window.geoArcsMap && typeof targetNode.lat === "number" && typeof targetNode.lon === "number") {
+          window.geoArcsMap.flyTo(targetNode.lat, targetNode.lon, 6);
+        } else if (window.bgpVisualizer) {
+          window.bgpVisualizer.focusOnNode(targetNode);
+        }
+      }
     });
   }
 
   /**
+   * Render real-world interactive BGP topology on GeoArcsMap (Leaflet + Bezier Arcs)
+   */
+  function renderGeoArcsMap(data) {
+    if (!window.geoArcsMap || !data || !data.graph) return;
+
+    // 1. Set Host Location (Core Target Origin AS)
+    const originNode = data.graph.nodes.find(n => n.is_target) || data.graph.nodes[0];
+    const hostLat = (originNode && typeof originNode.lat === "number") ? originNode.lat : (data.ip_metadata.lat || 37.7749);
+    const hostLon = (originNode && typeof originNode.lon === "number") ? originNode.lon : (data.ip_metadata.lon || -122.4194);
+    if (originNode) {
+      if (typeof originNode.lat !== "number") originNode.lat = hostLat;
+      if (typeof originNode.lon !== "number") originNode.lon = hostLon;
+    }
+    const hostCity = (originNode && originNode.city) || data.ip_metadata.city || "";
+    const hostCountry = (originNode && originNode.country) || data.ip_metadata.country_code || "US";
+    const hostLabel = `AS${data.origin_asn}`;
+    const hostName = data.ip_metadata.as_name || (originNode && originNode.name) || "Target Origin";
+
+    window.geoArcsMap.setHostLocation({
+      lat: hostLat,
+      lon: hostLon,
+      city: hostCity,
+      country: hostCountry,
+      label: hostLabel,
+      name: hostName,
+      asn: data.origin_asn,
+      data: originNode
+    });
+
+    // 2. Set Destination Nodes (Peers, Tier-1s, Regional Transits)
+    const geoNodes = data.graph.nodes
+      .filter(n => !n.is_target && typeof n.lat === "number" && typeof n.lon === "number")
+      .map(n => {
+        let color = "#00b4d8"; // Hop 1: Sky Blue
+        if (n.is_tier1) color = "#a855f7"; // Tier-1: Purple
+        else if (n.depth >= 3 && n.depth <= 5) color = "#f59e0b"; // Regional: Amber
+        else if (n.depth >= 6) color = "#f43f5e"; // Edge: Rose
+
+        const locStr = n.city ? `${n.city}, ${n.country}` : (n.country || "Global");
+        const ipInfoHtml = n.representative_ip ? `
+          <div style="color: #67e8f9; font-size: 10px; margin-bottom: 2px;">
+            🌐 Geolocation IP: <span style="color: #ffffff; font-weight: bold;">${n.representative_ip}</span>
+            ${n.representative_prefix ? ` <span style="color: #94a3b8;">(${n.representative_prefix})</span>` : ''}
+          </div>
+        ` : '';
+
+        const tooltipHtml = `
+          <div style="font-family: monospace; font-size: 11px; padding: 4px 6px;">
+            <div style="font-weight: bold; color: ${color}; font-size: 12px; margin-bottom: 2px;">
+              AS${n.asn} ${n.flag || ""} ${n.name || ""}
+            </div>
+            ${ipInfoHtml}
+            <div style="color: #38bdf8; font-size: 10px; margin-bottom: 2px;">
+              📍 ${locStr} (${n.lat.toFixed(2)}°, ${n.lon.toFixed(2)}°)
+            </div>
+            <div style="color: #cbd5e1; font-size: 10px;">
+              Hop ${n.depth} • ${n.tier} • ${n.connected_peers ? n.connected_peers.length : (n.peer_count || 1)} Connected Peers
+            </div>
+            <div style="color: #00f0ff; font-size: 9px; margin-top: 4px; font-style: italic;">
+              Click node to isolate & highlight connected peer arcs
+            </div>
+          </div>
+        `;
+
+        return {
+          id: String(n.id || n.asn),
+          lat: n.lat,
+          lon: n.lon,
+          label: `AS${n.asn}`,
+          color: color,
+          tooltipHtml: tooltipHtml,
+          tier_level: n.tier_level,
+          data: n
+        };
+      });
+
+    window.geoArcsMap.setNodes(geoNodes);
+
+    // 3. Set Links (Curved animated quadratic Bezier packet arcs)
+    const nodeCoords = new Map();
+    // Explicitly seed host coordinates under both target ASN and origin node ID
+    nodeCoords.set(String(data.origin_asn), { lat: hostLat, lon: hostLon });
+    if (originNode && (originNode.id || originNode.asn)) {
+      nodeCoords.set(String(originNode.id || originNode.asn), { lat: hostLat, lon: hostLon });
+    }
+
+    data.graph.nodes.forEach(n => {
+      if (typeof n.lat === "number" && typeof n.lon === "number") {
+        nodeCoords.set(String(n.id || n.asn), { lat: n.lat, lon: n.lon });
+      }
+    });
+
+    const geoLinks = [];
+    data.graph.links.forEach((link, idx) => {
+      const sId = typeof link.source === "object" ? String(link.source.id || link.source.asn) : String(link.source);
+      const tId = typeof link.target === "object" ? String(link.target.id || link.target.asn) : String(link.target);
+      const s = nodeCoords.get(sId);
+      const t = nodeCoords.get(tId);
+
+      if (s && t) {
+        const d = link.depth || 1;
+        let col = "#00f0ff";
+        if (d === 1) col = "#00b4d8";
+        else if (d === 2) col = "#a855f7";
+        else if (d >= 3) col = "#f59e0b";
+
+        geoLinks.push({
+          id: `arc-${sId}-${tId}-${idx}`,
+          sourceId: sId,
+          targetId: tId,
+          source: { lat: s.lat, lon: s.lon },
+          target: { lat: t.lat, lon: t.lon },
+          color: col,
+          speed: 0.00018,
+          data: link
+        });
+      }
+    });
+
+    window.geoArcsMap.setLinks(geoLinks);
+
+    // Force canvas resize to fill viewport
+    setTimeout(() => {
+      if (window.geoArcsMap) window.geoArcsMap.resize();
+    }, 100);
+  }
+
+  /**
    * Main AS Inspector function: Invoked whenever an AS node is clicked or chosen.
-   * Updates the right sidebar with the complete profile of the selected AS.
+   * Updates the right sidebar with the complete profile of the selected AS and
+   * highlights its connected peers across the World Map, 3D Radial, and 2D Rings views.
    */
   async function selectAS(nodeOrAsn) {
-    if (!nodeOrAsn) return;
+    if (!nodeOrAsn) {
+      if (window.geoArcsMap) {
+        window.geoArcsMap.highlightNodePeers(null);
+      }
+      if (window.bgpVisualizer) {
+        window.bgpVisualizer.deselectNode();
+      }
+      if (window.hoverHUD) {
+        window.hoverHUD.hideFloatingHUD();
+      }
+
+      // Reset AS Inspector badge
+      const badge = document.getElementById("tab-asn-badge");
+      if (badge) {
+        badge.innerText = "";
+        badge.classList.add("hidden");
+      }
+
+      // Collapse left prefixes panel
+      const leftPanel = document.getElementById("left-panel");
+      if (leftPanel) {
+        leftPanel.classList.add("collapsed");
+      }
+
+      // Return right panel tab to Target Overview
+      switchTab("target");
+      return;
+    }
 
     let asn = null;
     let node = null;
@@ -392,19 +795,50 @@ document.addEventListener("DOMContentLoaded", () => {
       badge.classList.remove("hidden");
     }
 
-    // Highlight selected node and its links in visualizer without displacing the map
-    if (window.bgpVisualizer) {
-      const activeNode = node || (window.bgpVisualizer.currentData?.graph?.nodes || []).find(n => n.asn === asn);
-      if (activeNode) {
-        window.bgpVisualizer.selectNode(activeNode);
+    // Resolve active topology node & direct connected peers
+    const activeNode = node || (window.currentTraceData?.graph?.nodes || []).find(n => n.asn === asn) || (window.bgpVisualizer?.currentData?.graph?.nodes || []).find(n => n.asn === asn);
+    const allLinks = (window.currentTraceData?.graph?.links) ||
+                     (window.bgpVisualizer?.currentData?.graph?.links) ||
+                     [];
+    const peerAsns = (activeNode && Array.isArray(activeNode.connected_peers) && activeNode.connected_peers.length > 0)
+      ? activeNode.connected_peers
+      : allLinks
+          .filter(l => {
+            const s = String(typeof l.source === 'object' ? l.source.id || l.source.asn : l.source);
+            const t = String(typeof l.target === 'object' ? l.target.id || l.target.asn : l.target);
+            return s === String(asn) || t === String(asn);
+          })
+          .map(l => {
+            const s = String(typeof l.source === 'object' ? l.source.id || l.source.asn : l.source);
+            const t = String(typeof l.target === 'object' ? l.target.id || l.target.asn : l.target);
+            return s === String(asn) ? parseInt(t, 10) : parseInt(s, 10);
+          });
+
+    const activeLat = (activeNode && typeof activeNode.lat === "number")
+      ? activeNode.lat
+      : (window.geoArcsMap?.hostLocation?.asn === asn ? window.geoArcsMap.hostLocation.lat : null);
+    const activeLon = (activeNode && typeof activeNode.lon === "number")
+      ? activeNode.lon
+      : (window.geoArcsMap?.hostLocation?.asn === asn ? window.geoArcsMap.hostLocation.lon : null);
+
+    // In Map mode, highlight connected peers & smooth fly-to the selected AS coordinates
+    if (window.geoArcsMap) {
+      window.geoArcsMap.highlightNodePeers(asn, peerAsns);
+      if (currentViewMode === "map" && typeof activeLat === "number" && typeof activeLon === "number") {
+        window.geoArcsMap.flyTo(activeLat, activeLon, 5.2);
       }
     }
 
+    // In 3D / 2D mode, highlight selected node and illuminate connecting peer links
+    if (window.bgpVisualizer && activeNode) {
+      window.bgpVisualizer.selectNode(activeNode);
+    }
+
     // Render immediate topology node details
-    renderSelectedASCard(node || { asn, name: `AS${asn}`, country: "US", flag: "🌐", tier: "Transit / Peer" }, true);
+    renderSelectedASCard(activeNode || { asn, name: `AS${asn}`, country: "US", flag: "🌐", tier: "Transit / Peer" }, true);
 
     // Concurrently load announced prefixes in the Left Sidebar
-    loadASPrefixes(asn, node);
+    loadASPrefixes(asn, activeNode);
 
     // Concurrently fetch real-time full AS details from backend (/api/as/{asn})
     try {
@@ -412,7 +846,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (res.ok) {
         const fullDetail = await res.json();
         const merged = {
-          ...(node || {}),
+          ...(activeNode || {}),
           ...fullDetail
         };
         renderSelectedASCard(merged, false);
@@ -431,7 +865,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } catch (e) {
       console.warn("Could not fetch supplementary details for AS" + asn, e);
-      if (node) renderSelectedASCard(node, false);
+      if (activeNode) renderSelectedASCard(activeNode, false);
     }
   }
 
@@ -450,26 +884,75 @@ document.addEventListener("DOMContentLoaded", () => {
       ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
       : (isTarget ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30");
 
-    // Connected neighbor peers
+    // Connected peers in the active topology graph
+    const graphPeers = asData.connected_peers || [];
+    const topPeers = (graphPeers.length > 0) ? graphPeers : (asData.top_peers || []);
+
     let peersListHtml = "";
-    const topPeers = asData.top_peers || [];
     if (topPeers.length > 0) {
       peersListHtml = `
         <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-700/60 space-y-2.5 text-xs">
-          <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Direct Neighbor Peers</span>
-            <span class="text-cyan-400 font-mono">${asData.peer_count ? asData.peer_count.toLocaleString() : topPeers.length} Peers</span>
+          <div class="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+              Connected Direct Peers in Graph
+            </span>
+            <span class="text-cyan-300 font-mono font-bold">${topPeers.length} Peers</span>
           </div>
-          <div class="flex flex-wrap gap-1.5 pt-1">
+          <p class="text-[10px] text-slate-400">Click any peer below to inspect and highlight its interconnected links:</p>
+          <div class="flex flex-wrap gap-1.5 pt-1 max-h-36 overflow-y-auto">
             ${topPeers.map(pAsn => `
-              <button class="dynamic-peer-btn text-[11px] font-mono px-2 py-1 rounded bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-300 border border-slate-700 transition" data-asn="${pAsn}">
-                AS${pAsn}
+              <button class="dynamic-peer-btn text-[11px] font-mono px-2 py-1 rounded bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-300 text-slate-200 border border-slate-700 hover:border-cyan-400/50 transition cursor-pointer flex items-center gap-1" data-asn="${pAsn}">
+                <span>AS${pAsn}</span>
+                <span class="text-[9px] text-cyan-400 opacity-70">↗</span>
               </button>
             `).join("")}
           </div>
         </div>
       `;
     }
+
+    // Geolocation & Representative IP block
+    const repIp = asData.representative_ip;
+    const repPrefix = asData.representative_prefix;
+    const locStr = asData.city ? `${asData.city}, ${asData.country || ''}` : (asData.country || 'Global');
+    const geoCoords = (typeof asData.lat === 'number' && typeof asData.lon === 'number')
+      ? `${asData.lat.toFixed(4)}°, ${asData.lon.toFixed(4)}°`
+      : 'Auto-dispersed';
+
+    const geoCardHtml = `
+      <div class="p-4 rounded-xl bg-slate-900/60 border border-slate-700/60 space-y-2 text-xs">
+        <div class="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center justify-between mb-1">
+          <span class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            World Map Geolocation Coordinates
+          </span>
+          <span class="text-[10px] font-mono text-emerald-300 font-bold">Exact IP Pinpoint</span>
+        </div>
+
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Representative IP</span>
+          <span class="text-cyan-300 font-mono font-bold">${repIp || 'Target IP'}</span>
+        </div>
+
+        ${repPrefix ? `
+          <div class="flex justify-between py-1 border-b border-slate-800">
+            <span class="text-slate-400">Extracted Prefix</span>
+            <span class="text-purple-300 font-mono">${repPrefix}</span>
+          </div>
+        ` : ''}
+
+        <div class="flex justify-between py-1 border-b border-slate-800">
+          <span class="text-slate-400">Pinpoint Location</span>
+          <span class="text-slate-200 font-medium">${locStr}</span>
+        </div>
+
+        <div class="flex justify-between py-1">
+          <span class="text-slate-400">Exact Coordinates</span>
+          <span class="text-emerald-400 font-mono">${geoCoords}</span>
+        </div>
+      </div>
+    `;
 
     container.innerHTML = `
       <div class="space-y-4">
@@ -538,6 +1021,8 @@ document.addEventListener("DOMContentLoaded", () => {
             </span>
           </div>
         </div>
+
+        ${geoCardHtml}
 
         ${peersListHtml}
 
@@ -1156,6 +1641,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Initialize standby state on startup
+  // Initialize standby state on startup (await user submission via Enter or Trace button)
   renderInitialSidebarStandby();
 });

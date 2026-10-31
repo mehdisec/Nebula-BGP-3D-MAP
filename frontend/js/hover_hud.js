@@ -157,7 +157,11 @@ class HoverHUDManager {
     document.getElementById("hud-asn-label").innerText = `AS${node.asn}`;
     document.getElementById("hud-flag").innerText = node.flag || "🌐";
     document.getElementById("hud-name").innerText = node.name || `Autonomous System ${node.asn}`;
-    document.getElementById("hud-country").innerText = `${node.country || "US"}`;
+    const countryText = node.city ? `${node.city}, ${node.country || "US"}` : (node.country || "US");
+    const geoCoordText = (typeof node.lat === "number" && typeof node.lon === "number")
+      ? ` • ${node.lat >= 0 ? node.lat.toFixed(2) + "°N" : Math.abs(node.lat).toFixed(2) + "°S"}, ${node.lon >= 0 ? node.lon.toFixed(2) + "°E" : Math.abs(node.lon).toFixed(2) + "°W"}`
+      : "";
+    document.getElementById("hud-country").innerText = `${countryText}${geoCoordText}`;
     document.getElementById("hud-depth").innerText = node.depth === 0 ? "Hop 0 (Core Target)" : `Hop ${node.depth} from Target`;
     document.getElementById("hud-tier").innerText = node.tier || (node.is_tier1 ? "Tier-1 Transit" : "Transit / Peer");
     document.getElementById("hud-peers").innerText = node.peer_count ? `${node.peer_count.toLocaleString()} Peers` : "Connected Peer";

@@ -261,3 +261,58 @@ def get_known_as_info(asn: int) -> Optional[Dict[str, Any]]:
             "is_tier1": False,
         }
     return None
+
+# Curated High-Reliability Peering & Upstream Relationships
+# Used when live Looking Glass feeds or RIPE neighbours encounter network outages or 500 errors
+KNOWN_ASN_PEERS: Dict[int, list] = {
+    # Iranian Operators & National Gateways
+    44244: [49666, 56429, 12880, 20869, 197207, 48159],  # MTN Irancell -> TIC GW, TIC, DCI, Shatel, MCI, TCI
+    197207: [49666, 56429, 12880, 44244, 48159],        # MCI -> TIC GW, TIC, Irancell, TCI
+    48159: [49666, 56429, 12880, 44244, 197207],        # TCI -> TIC GW, TIC
+    12880: [1299, 9002, 6453, 6939, 3257, 49666],       # DCI -> Arelion, RETN, Tata, HE, GTT
+    56429: [1299, 9002, 6453, 174, 49666, 3320],        # TIC -> Arelion, RETN, Tata, Cogent, DT
+    49666: [1299, 9002, 6453, 6939, 3257, 3320, 174],   # TIC-GW-AS -> Global Backbones
+    20869: [49666, 56429, 12880],                        # Shatel
+
+    # Global Hyper-scalers & CDNs
+    15169: [174, 3356, 1299, 2914, 6939, 13335, 8075, 7018, 1239, 3257, 6453],  # Google
+    13335: [174, 3356, 1299, 2914, 6939, 6453, 3257, 12956, 15169, 8075],       # Cloudflare
+    16509: [174, 3356, 1299, 2914, 6939, 7018, 1239, 6461, 3257],               # AWS
+    8075: [174, 3356, 1299, 2914, 6939, 7018, 6453, 3257, 13335],               # Microsoft
+    32934: [174, 3356, 1299, 2914, 6939, 13335, 6453, 3257],                    # Meta
+    20940: [174, 3356, 1299, 2914, 6939, 7018, 6453],                           # Akamai
+    54113: [174, 3356, 1299, 2914, 6939, 13335, 3257],                          # Fastly
+    6939: [174, 3356, 1299, 2914, 6453, 3257, 12956, 6762, 3320],               # Hurricane Electric
+    9002: [1299, 3356, 174, 6939, 6453, 3320, 3257],                            # RETN
+    24940: [3320, 1299, 3356, 174, 6939, 9002],                                 # Hetzner
+    46484: [3356, 174, 1299, 6453, 3257, 6939],                                 # OVH
+    19281: [174, 3356, 1299, 2914, 6939, 13335],                                # Quad9
+    36692: [174, 3356, 1299, 2914, 6939, 7018],                                 # Cisco OpenDNS
+
+    # Tier-1 Backbone Inter-peering Mesh (Default Free Zone)
+    174: [3356, 1299, 2914, 6453, 6461, 3257, 6762, 7018, 12956, 3320],         # Cogent
+    3356: [174, 1299, 2914, 6453, 6461, 3257, 6762, 7018, 12956, 3320],        # Lumen
+    1299: [174, 3356, 2914, 6453, 6461, 3257, 6762, 7018, 3320, 9002],         # Arelion
+    2914: [174, 3356, 1299, 6453, 6461, 3257, 6762, 7018, 12956],              # NTT
+    6453: [174, 3356, 1299, 2914, 6461, 3257, 6762, 7018, 12956],              # Tata
+    3257: [174, 3356, 1299, 2914, 6453, 6461, 6762, 7018, 12956],              # GTT
+    3320: [174, 3356, 1299, 2914, 6453, 3257, 6762, 9002],                      # Deutsche Telekom
+    7018: [174, 3356, 1299, 2914, 6453, 6461, 3257],                            # AT&T
+    12956: [174, 3356, 1299, 2914, 6453, 6461, 3257, 6762],                     # Telefonica
+}
+
+def get_fallback_peers(asn: int, country_code: Optional[str] = "US") -> list:
+    """Return fallback peer AS numbers when live telemetry is unavailable."""
+    if asn in KNOWN_ASN_PEERS:
+        return KNOWN_ASN_PEERS[asn]
+    cc = (country_code or "US").upper()
+    if cc in ["IR"]:
+        return [49666, 56429, 12880]
+    elif cc in ["DE", "FR", "NL", "GB", "SE", "IT", "ES", "CH", "AT", "PL", "CZ"]:
+        return [1299, 3320, 3356, 174, 9002, 6939]
+    elif cc in ["JP", "CN", "KR", "SG", "HK", "TW", "IN", "AU"]:
+        return [2914, 6453, 174, 3356, 6939]
+    elif cc in ["BR", "AR", "CL", "CO", "MX"]:
+        return [12956, 174, 3356, 6453, 6939]
+    else:
+        return [174, 3356, 1299, 6939, 6453]

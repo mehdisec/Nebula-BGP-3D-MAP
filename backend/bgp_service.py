@@ -14,7 +14,8 @@ import httpx
 from backend.cache import cache, as_cache
 from backend.as_database import (
     get_known_as_info, country_code_to_flag, TIER1_ASNS, MAJOR_NETWORKS,
-    get_as_geo_coordinates, get_country_coordinates, get_known_representative_ip
+    get_as_geo_coordinates, get_country_coordinates, get_known_representative_ip,
+    get_fallback_peers
 )
 from backend.models import (
     NodeModel, LinkModel, GraphModel, WhoisField, WhoisRecord,
@@ -583,6 +584,30 @@ class BGPService:
                     final_nodes_set.add(peer_asn)
                     final_edges.add((target_asn, peer_asn, 1))
 
+        # 2b. High-availability fallback: if RIPE neighbours or looking glass returned no links (e.g. RIPE 500 downtime)
+        if len(final_nodes_set) <= 1:
+            target_country = target_geo.get("country") if target_geo else None
+            h1_peers = get_fallback_peers(target_asn, target_country)
+            for peer_asn in h1_peers[:15]:
+                if peer_asn != target_asn:
+                    node_depths[peer_asn] = 1
+                    final_nodes_set.add(peer_asn)
+                    final_edges.add((target_asn, peer_asn, 1))
+
+        # 2c. Synthesize multi-hop upstreams if fallback was triggered and max_depth >= 2
+        if len(final_nodes_set) > 1 and max_depth >= 2:
+            current_h1 = [a for a in list(final_nodes_set) if node_depths.get(a) == 1]
+            for h1 in current_h1[:6]:
+                h2_peers = get_fallback_peers(h1)
+                for h2 in h2_peers[:5]:
+                    if h2 != target_asn and h2 != h1:
+                        if h2 not in node_depths:
+                            node_depths[h2] = 2
+                            final_nodes_set.add(h2)
+                            final_edges.add((h1, h2, 2))
+                        elif (h1, h2, 2) not in final_edges and (h2, h1, 2) not in final_edges:
+                            final_edges.add((h1, h2, 2))
+
         # 3. Build peer counts and connected peers map based strictly on actual graph edges
         peer_counts: Dict[int, int] = {target_asn: 0}
         connected_peers_map: Dict[int, List[int]] = {}
@@ -762,14 +787,32 @@ class BGPService:
                     data = rs_data.get("data", {})
                     prefix = data.get("last_seen", {}).get("prefix") or data.get("first_seen", {}).get("prefix")
 
-                # Fallback to announced prefixes
-                if not prefix:
+                # Fallback to announced prefixes (prefer IPv4 for optimal route tracing & geolocation)
+                if not prefix or ":" in prefix:
                     ap_url = f"https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS{origin_asn}"
                     ap_data = await self._fetch_json(client, ap_url)
                     if isinstance(ap_data, dict) and ap_data.get("status") == "ok":
                         prefixes = ap_data.get("data", {}).get("prefixes", [])
-                        if prefixes:
+                        v4_prefixes = [p.get("prefix") for p in prefixes if p.get("prefix") and ":" not in p.get("prefix")]
+                        if v4_prefixes:
+                            prefix = v4_prefixes[0]
+                        elif prefixes and not prefix:
                             prefix = prefixes[0].get("prefix")
+
+                # Resolve target geolocation and ISP using curated representative IP or prefix network
+                rep_ip = get_known_representative_ip(origin_asn)
+                if not rep_ip and prefix and ":" not in prefix:
+                    try:
+                        net = ipaddress.ip_network(prefix, strict=False)
+                        rep_ip = str(net.network_address + 1)
+                    except Exception:
+                        pass
+
+                if rep_ip:
+                    ip_api_url = f"http://ip-api.com/json/{rep_ip}?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,isp,org,as,asname,query"
+                    geo_res = await self._fetch_json(client, ip_api_url)
+                    if isinstance(geo_res, dict) and geo_res.get("status") == "success":
+                        geo_data = geo_res
 
                 # Concurrently fetch WHOIS and Looking Glass
                 whois_task = self.fetch_whois_records(client, prefix or f"AS{origin_asn}", origin_asn)

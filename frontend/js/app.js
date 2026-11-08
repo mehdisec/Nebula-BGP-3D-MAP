@@ -683,8 +683,8 @@ document.addEventListener("DOMContentLoaded", () => {
     window.geoArcsMap.setNodes(geoNodes);
 
     // 3. Set Links (Curved animated quadratic Bezier packet arcs)
+    // Build node coordinates lookup map
     const nodeCoords = new Map();
-    // Explicitly seed host coordinates under both target ASN and origin node ID
     nodeCoords.set(String(data.origin_asn), { lat: hostLat, lon: hostLon });
     if (originNode && (originNode.id || originNode.asn)) {
       nodeCoords.set(String(originNode.id || originNode.asn), { lat: hostLat, lon: hostLon });
@@ -697,31 +697,84 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const geoLinks = [];
-    data.graph.links.forEach((link, idx) => {
-      const sId = typeof link.source === "object" ? String(link.source.id || link.source.asn) : String(link.source);
-      const tId = typeof link.target === "object" ? String(link.target.id || link.target.asn) : String(link.target);
-      const s = nodeCoords.get(sId);
-      const t = nodeCoords.get(tId);
+    const arcSet = new Set();
+    const lgPaths = data.looking_glass_paths || [];
 
-      if (s && t) {
-        const d = link.depth || 1;
-        let col = "#00f0ff";
-        if (d === 1) col = "#00b4d8";
-        else if (d === 2) col = "#a855f7";
-        else if (d >= 3) col = "#f59e0b";
+    // User directive: Extract arcs directly from BGP Paths first!
+    if (lgPaths.length > 0) {
+      lgPaths.forEach(path => {
+        const asPath = path.as_path || [];
+        // BGP path format: [Vantage/Upstream, ..., Hop 1, Target]
+        for (let i = 0; i < asPath.length - 1; i++) {
+          const upstreamAsn = String(asPath[i]);
+          const downstreamAsn = String(asPath[i + 1]);
+          const arcKey = `${upstreamAsn}-${downstreamAsn}`;
+          const reverseKey = `${downstreamAsn}-${upstreamAsn}`;
+          if (arcSet.has(arcKey) || arcSet.has(reverseKey)) continue;
+          arcSet.add(arcKey);
 
-        geoLinks.push({
-          id: `arc-${sId}-${tId}-${idx}`,
-          sourceId: sId,
-          targetId: tId,
-          source: { lat: s.lat, lon: s.lon },
-          target: { lat: t.lat, lon: t.lon },
-          color: col,
-          speed: 0.00018,
-          data: link
-        });
-      }
-    });
+          const s = nodeCoords.get(upstreamAsn);
+          const t = nodeCoords.get(downstreamAsn);
+
+          if (s && t) {
+            const hopDepth = asPath.length - 1 - i;
+            let col = "#00f0ff";
+            if (hopDepth === 1) col = "#00b4d8";       // Sky Blue (Direct peering to target)
+            else if (hopDepth === 2) col = "#a855f7";  // Purple (Hop 2 / Tier-1 Upstream)
+            else if (hopDepth >= 3) col = "#f59e0b";   // Amber (Deep upstream / Global vantage)
+
+            geoLinks.push({
+              id: `arc-${upstreamAsn}-${downstreamAsn}`,
+              sourceId: upstreamAsn,
+              targetId: downstreamAsn,
+              source: { lat: s.lat, lon: s.lon },
+              target: { lat: t.lat, lon: t.lon },
+              color: col,
+              speed: 0.00018,
+              data: {
+                source: upstreamAsn,
+                target: downstreamAsn,
+                depth: hopDepth,
+                path_collector: path.collector
+              }
+            });
+          }
+        }
+      });
+    }
+
+    // Secondary fallback or complement: If no paths or missing links, draw from graph.links
+    if (geoLinks.length === 0 && data.graph.links && data.graph.links.length > 0) {
+      data.graph.links.forEach((link, idx) => {
+        const sId = typeof link.source === "object" ? String(link.source.id || link.source.asn) : String(link.source);
+        const tId = typeof link.target === "object" ? String(link.target.id || link.target.asn) : String(link.target);
+        const s = nodeCoords.get(sId);
+        const t = nodeCoords.get(tId);
+
+        if (s && t) {
+          const arcKey = `${sId}-${tId}`;
+          if (arcSet.has(arcKey)) return;
+          arcSet.add(arcKey);
+
+          const d = link.depth || 1;
+          let col = "#00f0ff";
+          if (d === 1) col = "#00b4d8";
+          else if (d === 2) col = "#a855f7";
+          else if (d >= 3) col = "#f59e0b";
+
+          geoLinks.push({
+            id: `arc-${sId}-${tId}-${idx}`,
+            sourceId: sId,
+            targetId: tId,
+            source: { lat: s.lat, lon: s.lon },
+            target: { lat: t.lat, lon: t.lon },
+            color: col,
+            speed: 0.00018,
+            data: link
+          });
+        }
+      });
+    }
 
     window.geoArcsMap.setLinks(geoLinks);
 
@@ -763,6 +816,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Return right panel tab to Target Overview
       switchTab("target");
+      if (window.currentTraceData) {
+        renderLookingGlassTab(window.currentTraceData, null);
+      }
       return;
     }
 
@@ -839,6 +895,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Concurrently load announced prefixes in the Left Sidebar
     loadASPrefixes(asn, activeNode);
+
+    // Filter/highlight BGP Looking Glass paths that traverse this selected ASN
+    if (window.currentTraceData) {
+      renderLookingGlassTab(window.currentTraceData, asn);
+    }
 
     // Concurrently fetch real-time full AS details from backend (/api/as/{asn})
     try {
@@ -1133,34 +1194,56 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
   }
 
-  function renderLookingGlassTab(data) {
-    const paths = data.looking_glass_paths || [];
+  function renderLookingGlassTab(data, filterAsn = null) {
+    if (!data) return;
+    const rawPaths = data.looking_glass_paths || [];
     const container = document.getElementById("tab-lg");
     if (!container) return;
 
-    if (paths.length === 0) {
+    if (rawPaths.length === 0) {
       container.innerHTML = `<div class="text-xs text-slate-400 italic">No looking glass paths recorded for this prefix.</div>`;
       return;
     }
 
+    const numFilterAsn = filterAsn ? parseInt(filterAsn, 10) : null;
+    const paths = [...rawPaths];
+    if (numFilterAsn) {
+      paths.sort((a, b) => {
+        const aMatches = (a.as_path || []).includes(numFilterAsn) ? 1 : 0;
+        const bMatches = (b.as_path || []).includes(numFilterAsn) ? 1 : 0;
+        return bMatches - aMatches;
+      });
+    }
+
+    const matchCount = numFilterAsn ? paths.filter(p => (p.as_path || []).includes(numFilterAsn)).length : 0;
+
     container.innerHTML = `
       <div class="space-y-3">
-        <div class="text-xs text-slate-400 flex justify-between">
+        <div class="text-xs text-slate-400 flex justify-between items-center">
           <span>Observed BGP Paths</span>
-          <span class="font-mono text-cyan-300">${paths.length} Vantage Collectors</span>
+          <span class="font-mono text-cyan-300 text-[11px]">${paths.length} Vantage Collectors</span>
         </div>
+        ${numFilterAsn ? `
+          <div class="text-[11px] px-2.5 py-1.5 bg-cyan-950/70 border border-cyan-800/80 rounded-lg text-cyan-300 flex items-center justify-between shadow-sm">
+            <span>Paths traversing <strong>AS${numFilterAsn}</strong></span>
+            <span class="px-1.5 py-0.2 bg-cyan-900/60 text-cyan-200 rounded font-mono text-[10px]">${matchCount} matches</span>
+          </div>
+        ` : ''}
         <div class="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
-          ${paths.map(p => `
-            <div class="p-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs space-y-1.5 hover:border-slate-700 transition">
+          ${paths.map(p => {
+            const isMatch = numFilterAsn && (p.as_path || []).includes(numFilterAsn);
+            return `
+            <div class="p-3 rounded-lg ${isMatch ? 'bg-cyan-950/40 border-cyan-500/60 shadow-[0_0_12px_rgba(0,240,255,0.18)]' : 'bg-slate-900/60 border-slate-800'} border text-xs space-y-1.5 hover:border-slate-700 transition">
               <div class="flex items-center justify-between text-[11px]">
-                <span class="font-semibold text-slate-300 font-mono">${p.collector}</span>
+                <span class="font-semibold ${isMatch ? 'text-cyan-300' : 'text-slate-300'} font-mono">${p.collector}</span>
                 <span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">${p.length} Hops</span>
               </div>
-              <div class="font-mono text-[11px] text-cyan-400 bg-black/40 p-1.5 rounded border border-slate-800/80 break-words leading-relaxed">
+              <div class="font-mono text-[11px] ${isMatch ? 'text-cyan-200 border-cyan-700/80 bg-cyan-950/60 font-semibold' : 'text-cyan-400 border-slate-800/80 bg-black/40'} p-1.5 rounded border break-words leading-relaxed">
                 ${p.path_str}
               </div>
             </div>
-          `).join("")}
+            `;
+          }).join("")}
         </div>
       </div>
     `;

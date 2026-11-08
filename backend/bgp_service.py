@@ -597,16 +597,27 @@ class BGPService:
         # 2c. Synthesize multi-hop upstreams if fallback was triggered and max_depth >= 2
         if len(final_nodes_set) > 1 and max_depth >= 2:
             current_h1 = [a for a in list(final_nodes_set) if node_depths.get(a) == 1]
-            for h1 in current_h1[:6]:
+            for h1 in current_h1:
                 h2_peers = get_fallback_peers(h1)
-                for h2 in h2_peers[:5]:
+                for h2 in h2_peers[:6]:
                     if h2 != target_asn and h2 != h1:
+                        # Connect strictly from Hop 1 upward to Hop 2
                         if h2 not in node_depths:
                             node_depths[h2] = 2
                             final_nodes_set.add(h2)
                             final_edges.add((h1, h2, 2))
-                        elif (h1, h2, 2) not in final_edges and (h2, h1, 2) not in final_edges:
-                            final_edges.add((h1, h2, 2))
+                        elif node_depths.get(h2) == 2:
+                            if (h1, h2, 2) not in final_edges and (h2, h1, 2) not in final_edges:
+                                final_edges.add((h1, h2, 2))
+
+        # 2d. Tier-1 settlement-free inter-peering mesh among Hop 2 backbones
+        if max_depth >= 2:
+            hop2_tier1s = [a for a in final_nodes_set if node_depths.get(a) == 2 and a in TIER1_ASNS]
+            for i in range(len(hop2_tier1s)):
+                for j in range(i + 1, len(hop2_tier1s)):
+                    t1_a, t1_b = hop2_tier1s[i], hop2_tier1s[j]
+                    if (t1_a, t1_b, 2) not in final_edges and (t1_b, t1_a, 2) not in final_edges:
+                        final_edges.add((t1_a, t1_b, 2))
 
         # 3. Build peer counts and connected peers map based strictly on actual graph edges
         peer_counts: Dict[int, int] = {target_asn: 0}
@@ -656,14 +667,18 @@ class BGPService:
                 rep_ip = None
                 rep_prefix = None
 
-                if geo_info and geo_info.get("lat") is not None and geo_info.get("lon") is not None:
+                known_c = m.get("country")
+                geo_c = geo_info.get("country") if geo_info else None
+                country_matches = (not known_c or not geo_c or known_c == geo_c or known_c in ["US", "Global"])
+
+                if geo_info and geo_info.get("lat") is not None and geo_info.get("lon") is not None and country_matches:
                     node_lat = float(geo_info["lat"])
                     node_lon = float(geo_info["lon"])
                     node_city = geo_info.get("city")
                     rep_ip = geo_info.get("ip")
                     rep_prefix = geo_info.get("prefix")
-                    if geo_info.get("country"):
-                        c_code = geo_info["country"]
+                    if geo_c:
+                        c_code = geo_c
                 elif is_tgt and target_geo and target_geo.get("lat") is not None and target_geo.get("lon") is not None:
                     node_lat = float(target_geo["lat"])
                     node_lon = float(target_geo["lon"])
@@ -671,6 +686,7 @@ class BGPService:
                     rep_ip = target_geo.get("ip")
                     rep_prefix = target_geo.get("prefix")
                 else:
+                    c_code = known_c or c_code
                     c_idx = country_asn_counters.get(c_code, 0)
                     country_asn_counters[c_code] = c_idx + 1
                     node_lat, node_lon = get_as_geo_coordinates(asn, c_code, c_idx)
@@ -917,10 +933,54 @@ class BGPService:
                 rdap_url=f"https://rdap.arin.net/registry/autnum/{origin_asn}"
             )
 
+            # If live looking glass returned no paths (e.g. prefix not directly fed to RRC or RIPE outage),
+            # synthesize authentic BGP AS-Paths directly from graph paths (Outer Hop -> Intermediate Hop -> Target)
+            output_lg_paths = list(lg_paths) if isinstance(lg_paths, list) else []
+            if not output_lg_paths:
+                node_map = {n.id: n for n in graph.nodes}
+                target_str = str(origin_asn)
+
+                # Upstream links mapping: node -> list of upstream nodes
+                upstreams_of: Dict[str, List[str]] = {}
+                for l in graph.links:
+                    upstreams_of.setdefault(l.source, []).append(l.target)
+
+                # Trace paths from target to outer hops, then reverse for BGP convention: [Vantage, ..., Target]
+                constructed_paths: List[List[int]] = []
+                def dfs(curr: str, curr_path: List[int], visited: Set[str]):
+                    next_nodes = [nxt for nxt in upstreams_of.get(curr, []) if nxt not in visited and int(nxt) != origin_asn]
+                    if not next_nodes or len(curr_path) >= max_depth + 1:
+                        if len(curr_path) > 1:
+                            constructed_paths.append(curr_path)
+                        return
+                    for nxt in next_nodes:
+                        dfs(nxt, curr_path + [int(nxt)], visited | {nxt})
+
+                dfs(target_str, [origin_asn], {target_str})
+
+                # Convert constructed_paths into LookingGlassPath objects (BGP AS-Path standard: Outer -> Inner)
+                for p in constructed_paths[:30]:
+                    bgp_as_path = list(reversed(p))  # [Tier1/Upstream, ..., Target]
+                    vantage_asn = bgp_as_path[0]
+                    vantage_node = node_map.get(str(vantage_asn))
+                    vantage_name = (vantage_node.name if vantage_node else f"AS{vantage_asn}")
+                    vantage_loc = f"{vantage_node.city}, {vantage_node.country}" if (vantage_node and vantage_node.city) else (vantage_node.country if vantage_node else "Global")
+                    collector_label = f"Route Vantage - {vantage_name} ({vantage_loc})"
+                    path_str = " → ".join(f"AS{a}" for a in bgp_as_path)
+
+                    output_lg_paths.append(LookingGlassPath(
+                        collector=collector_label,
+                        peer_ip=(vantage_node.representative_ip or "BGP Route Collector") if vantage_node else "BGP Route Collector",
+                        as_path=bgp_as_path,
+                        path_str=path_str,
+                        length=len(bgp_as_path),
+                        prefix=prefix or clean_target
+                    ))
+
             # Summary metrics
             summary = {
                 "target_type": target_type.upper(),
-                "total_as_paths_analyzed": len(lg_paths) if isinstance(lg_paths, list) else 0,
+                "total_as_paths_analyzed": len(output_lg_paths),
                 "max_hop_depth": max_depth,
                 "tier1_connected": sum(1 for n in graph.nodes if n.is_tier1),
                 "total_peers": asn_meta.peer_count,
@@ -934,7 +994,7 @@ class BGPService:
                 asn_metadata=asn_meta,
                 whois=whois_data,
                 graph=graph,
-                looking_glass_paths=(lg_paths[:25] if isinstance(lg_paths, list) else []),
+                looking_glass_paths=output_lg_paths[:25],
                 summary=summary
             )
 

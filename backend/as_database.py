@@ -174,8 +174,12 @@ MAJOR_NETWORKS = {
     12880: {"name": "DCI / TIC Iran Telecom", "country": "IR", "tier": "National Transit"},
     44244: {"name": "MTN Irancell", "country": "IR", "tier": "Major Mobile Operator"},
     197207: {"name": "MCI (Mobile Telecommunication Iran)", "country": "IR", "tier": "Major Mobile Operator"},
-    48159: {"name": "TCI (Telecommunication Company of Iran)", "country": "IR", "tier": "National Telco"},
-    56429: {"name": "TIC (Telecommunication Infrastructure Co)", "country": "IR", "tier": "National Gateway"}
+    31549: {"name": "Aria Shatel PJSC", "country": "IR", "tier": "Major Fixed Broadband"},
+    43754: {"name": "Asiatech Data Transmission", "country": "IR", "tier": "Major Fixed Broadband"},
+    58224: {"name": "TCI (Telecommunication Company of Iran)", "country": "IR", "tier": "National Telco"},
+    48159: {"name": "TIC-AS Telecommunication Infrastructure Co", "country": "IR", "tier": "National Transit"},
+    56429: {"name": "TIC (Telecommunication Infrastructure Co)", "country": "IR", "tier": "National Gateway"},
+    49666: {"name": "TIC-GW-AS Telecommunication Infrastructure Company", "country": "IR", "tier": "National International Gateway"}
 }
 
 # Curated Representative IPs for Instant City-level Geolocation
@@ -214,11 +218,15 @@ KNOWN_ASN_REPRESENTATIVE_IPS: Dict[int, str] = {
     45102: "47.88.0.1",       # Alibaba Cloud US
     13238: "77.88.8.8",       # Yandex (Moscow, RU)
     22822: "68.142.64.1",     # Edgio (Tempe, US)
-    12880: "5.200.0.1",       # TIC Iran
-    44244: "185.143.232.1",   # MTN Irancell (Tehran, IR)
-    197207: "188.253.0.1",    # MCI (Tehran, IR)
-    48159: "2.144.0.1",       # TCI (Tehran, IR)
-    56429: "178.252.0.1"      # TIC Infrastructure (Tehran, IR)
+    12880: "2.188.29.1",      # DCI / TIC (Tehran, IR)
+    44244: "5.113.48.1",      # MTN Irancell (Tehran, IR)
+    197207: "5.215.192.1",    # MCI (Tehran, IR)
+    31549: "94.183.40.1",     # Aria Shatel (Tehran, IR)
+    43754: "46.143.124.1",    # Asiatech (Tehran, IR)
+    58224: "46.100.114.1",    # TCI (Tehran, IR)
+    48159: "185.11.90.1",     # TCI / TIC (Tehran, IR)
+    56429: "2.188.187.2",     # TIC Infrastructure (Tehran, IR)
+    49666: "2.188.187.1"      # TIC-GW-AS (Tehran, IR)
 }
 
 def get_known_representative_ip(asn: int) -> Optional[str]:
@@ -266,13 +274,15 @@ def get_known_as_info(asn: int) -> Optional[Dict[str, Any]]:
 # Used when live Looking Glass feeds or RIPE neighbours encounter network outages or 500 errors
 KNOWN_ASN_PEERS: Dict[int, list] = {
     # Iranian Operators & National Gateways
-    44244: [49666, 56429, 12880, 20869, 197207, 48159],  # MTN Irancell -> TIC GW, TIC, DCI, Shatel, MCI, TCI
-    197207: [49666, 56429, 12880, 44244, 48159],        # MCI -> TIC GW, TIC, Irancell, TCI
-    48159: [49666, 56429, 12880, 44244, 197207],        # TCI -> TIC GW, TIC
-    12880: [1299, 9002, 6453, 6939, 3257, 49666],       # DCI -> Arelion, RETN, Tata, HE, GTT
-    56429: [1299, 9002, 6453, 174, 49666, 3320],        # TIC -> Arelion, RETN, Tata, Cogent, DT
-    49666: [1299, 9002, 6453, 6939, 3257, 3320, 174],   # TIC-GW-AS -> Global Backbones
-    20869: [49666, 56429, 12880],                        # Shatel
+    44244: [49666, 12880, 197207, 31549, 43754, 58224],  # MTN Irancell -> TIC Gateways + Domestic Peers (MCI, Shatel, Asiatech, TCI)
+    197207: [49666, 12880, 44244, 31549, 43754],        # MCI -> TIC Gateways + Domestic Peers
+    31549: [49666, 12880, 44244, 197207],                # Aria Shatel
+    43754: [49666, 12880, 44244, 197207],                # Asiatech
+    58224: [49666, 12880, 44244, 197207],                # TCI
+    48159: [49666, 12880, 44244, 197207],                # TIC / TCI
+    12880: [1299, 9002, 6453, 174, 6939, 3257],          # DCI / TIC -> Global Tier-1 & Backbones
+    56429: [1299, 9002, 6453, 174, 3320],                # TIC Infrastructure -> Global Tier-1
+    49666: [1299, 9002, 6453, 3320, 6939, 3257, 174],   # TIC-GW-AS -> Global Tier-1 & Backbones
 
     # Global Hyper-scalers & CDNs
     15169: [174, 3356, 1299, 2914, 6939, 13335, 8075, 7018, 1239, 3257, 6453],  # Google

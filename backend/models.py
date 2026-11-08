@@ -99,11 +99,11 @@ class ASNMetadata(BaseModel):
 
 class LookingGlassPath(BaseModel):
     collector: str
-    peer_ip: str
+    peer_ip: Optional[str] = ""
     as_path: List[int]
     path_str: str
     length: int
-    prefix: str
+    prefix: Optional[str] = ""
 
 class BGPTraceResponse(BaseModel):
     target_ip: str
